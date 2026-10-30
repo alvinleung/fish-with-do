@@ -40,7 +40,7 @@ canvas.height = CANVAS_H;
 
 // Tilt -> gravity mapping. Flip INVERT_X / INVERT_Y if the ball feels
 // backwards, or tune GRAVITY_SCALE for more/less responsiveness.
-const GRAVITY_SCALE = 1.4;
+const GRAVITY_SCALE = 0.8;
 const INVERT_X = false;
 const INVERT_Y = true;
 
@@ -66,6 +66,40 @@ let latest = { x: 0, y: 0 };
 let won = false;
 let startTime = performance.now();
 let peer: Peer | null = null;
+let tiltMsgCount = 0;
+
+// Keyboard fallback / diagnostic: arrow keys or WASD drive the same `latest`
+// vector the phone sends, so the game is playable (and testable) with no phone.
+const keys = new Set<string>();
+const KEYMAP: Record<string, [number, number]> = {
+  arrowleft: [-1, 0], a: [-1, 0],
+  arrowright: [1, 0], d: [1, 0],
+  arrowup: [0, -1], w: [0, -1],
+  arrowdown: [0, 1], s: [0, 1],
+};
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (KEYMAP[k]) {
+    keys.add(k);
+    e.preventDefault();
+  }
+});
+window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+function keyboardTilt(): { x: number; y: number } | null {
+  let x = 0;
+  let y = 0;
+  keys.forEach((k) => {
+    const v = KEYMAP[k];
+    if (v) {
+      x += v[0];
+      y += v[1];
+    }
+  });
+  if (x === 0 && y === 0) return null;
+  const m = Math.hypot(x, y) || 1;
+  return { x: x / m, y: y / m };
+}
+tiltDebug.textContent = '←↑↓→ / WASD to test · awaiting tilt';
 
 Events.on(engine, 'collisionStart', (ev) => {
   if (won) return;
@@ -127,6 +161,8 @@ function loop(now: number): void {
   const dt = Math.min(32, now - last);
   last = now;
   if (!won) {
+    const kb = keyboardTilt();
+    if (kb) latest = kb;
     engine.gravity.x = latest.x * (INVERT_X ? -1 : 1) * GRAVITY_SCALE;
     engine.gravity.y = latest.y * (INVERT_Y ? -1 : 1) * GRAVITY_SCALE;
     Engine.update(engine, dt);
@@ -205,8 +241,11 @@ function startSession(): void {
     onData: (m: Msg) => {
       if (m.kind === 'tilt') {
         latest = { x: m.x, y: m.y };
+        tiltMsgCount++;
         tiltDebug.textContent =
-          'recv ' + m.x.toFixed(2) + ', ' + m.y.toFixed(2);
+          tiltMsgCount + ' msgs  x=' + m.x.toFixed(2) + ' y=' + m.y.toFixed(2);
+      } else {
+        tiltDebug.textContent = 'got: ' + m.kind;
       }
     },
     onClose: () => {
