@@ -9,25 +9,25 @@
     <div id="app">
       <header>
         <h1>Maze Ball</h1>
-        <span id="status" class="status">Waiting for controller</span>
+        <span id="status" class="status">Preparing pairing…</span>
       </header>
 
       <div id="pair" class="panel">
-        <button id="newSessionBtn" class="primary">New session</button>
-
-        <div id="offerWrap" class="hidden">
-          <h2>1. Show this QR to the phone</h2>
-          <img id="offerQR" class="qr" alt="offer QR" />
+        <h2>1. Pair your phone</h2>
+        <img id="pairQR" class="qr hidden" alt="Pairing QR — scan with your phone" />
+        <p id="qrHint" class="hint">Generating the QR code…</p>
+        <div class="pair-row">
           <details class="fallback">
-            <summary>Copy the offer (if the phone can't scan)</summary>
-            <textarea id="offerBox" readonly></textarea>
-            <button id="copyOfferBtn">Copy offer</button>
+            <summary>QR won't scan? Copy this URL to your phone</summary>
+            <input id="linkUrl" readonly />
+            <button id="copyUrlBtn">Copy URL</button>
           </details>
+          <button id="newSessionBtn" class="ghost">New QR</button>
         </div>
 
         <div id="answerWrap">
-          <h2>2. Paste the answer from the phone</h2>
-          <textarea id="answerBox" placeholder="paste answer JSON"></textarea>
+          <h2>2. Paste the answer from your phone</h2>
+          <textarea id="answerBox" placeholder="paste the answer JSON — it connects automatically"></textarea>
           <button id="connectBtn" class="primary">Connect</button>
         </div>
       </div>

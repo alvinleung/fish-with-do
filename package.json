@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "jsqr": "^1.4.0",
     "matter-js": "^0.20.0",
     "qrcode": "^1.5.4",
     "simple-peer": "^9.11.1"

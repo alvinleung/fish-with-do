@@ -14,10 +14,13 @@ WebRTC.
 - **Game page** (computer): a Matter.js maze. The incoming tilt sets the world
   gravity, so the ball rolls toward the direction you tilt. Reach the green goal.
 - **Pairing (no signaling server):** the computer generates a WebRTC **offer**
-  and shows it as a **QR code**. The phone **scans** it (camera), builds the
-  **answer**, and you copy-paste the answer back into the computer. Both sides
-  connect. This uses `trickle: false` so each side produces a single
-  self-contained SDP blob (all ICE candidates inline) that fits in one QR / one
+  and shows a **QR code that points straight at the controller page** with the
+  offer embedded in the URL (`controller.html?offer=…`). The phone scans it with
+  its **system camera** (no in-app scanner), the controller page **reads the
+  offer from the URL**, builds the **answer**, and you copy-paste the answer
+  back into the computer (it auto-connects on paste). This uses
+  `trickle: false` so each side produces a single self-contained SDP blob (all
+  ICE candidates inline, loopback candidates trimmed) that fits in one QR / one
   paste.
 
 ## Stack
@@ -28,7 +31,7 @@ WebRTC.
 | Hosting    | Vercel (free HTTPS static) |
 | Sensor     | `DeviceOrientation` (iOS permission on tap) |
 | Transport  | WebRTC via `simple-peer` (`trickle: false`) |
-| Pairing    | `qrcode` (offer/answer) + `jsQR` (phone camera scan) |
+| Pairing    | `qrcode` (controller URL with embedded offer) + `URLSearchParams` |
 | Game       | Matter.js 2D physics, custom canvas renderer |
 
 ## Run locally
@@ -59,17 +62,19 @@ auto-detected). You get two HTTPS URLs:
 
 ## Pairing steps
 
-1. On the **computer**, open the Game page and click **New session**. A QR code
-   appears (the offer).
-2. On the **phone**, open the Controller page, tap **Enable motion** (grant the
-   iOS permission), then **Scan offer QR** and point the camera at the computer
-   screen.
-3. The phone shows your **answer**. Tap **Copy answer**.
-4. On the **computer**, paste the answer and click **Connect**.
-5. Both show "connected" — tilt your phone to steer.
+1. On the **computer**, open the Game page. A QR code appears automatically
+   (no button needed).
+2. On the **phone**, scan the QR with the **system camera** (iPhone camera
+   app). The Controller page opens by itself with the offer already in the URL.
+3. Tap **Enable motion** (grant the iOS permission).
+4. The phone shows your **answer**. Tap **Copy answer**.
+5. On the **computer**, paste the answer into the answer box — it connects
+   automatically (or click **Connect**).
+6. Both show "connected" — tilt your phone to steer.
 
-If QR scanning is fiddly, use the "copy offer / paste offer" fallback on each
-page. If the computer has a webcam, it can also scan the phone's answer QR.
+If the QR is too dense to scan, expand **"QR won't scan? Copy this URL to your
+phone"** on the Game page, copy it, and open it in the phone's browser instead.
+Use **New QR** to generate a fresh pairing link if a session goes stale.
 
 ## Tuning
 
@@ -86,5 +91,5 @@ page. If the computer has a webcam, it can also scan the phone's answer QR.
 
 - iOS requires a **user gesture** to grant motion permission, hence the
   **Enable motion** button, and the page must be **HTTPS**.
-- The connection is one-shot; if it drops, run **New session** and re-pair.
+- The connection is one-shot; if it drops, click **New QR** and re-pair.
 - The data channel carries only tiny tilt JSON, so bandwidth is negligible.

@@ -1,5 +1,3 @@
-import { toDataURL } from 'qrcode';
-import jsQR from 'jsqr';
 import type { Instance as Peer } from 'simple-peer';
 import { createLink, sendMsg } from '../shared/link';
 import { requestMotionPermission, startTilt } from '../shared/tilt';
@@ -11,21 +9,13 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
 
 const statusEl = $('status');
 const startBtn = $('startBtn') as HTMLButtonElement;
-const pairPanel = $('pair');
-const scanBtn = $('scanBtn') as HTMLButtonElement;
-const cam = $('cam') as HTMLVideoElement;
-const stopCamBtn = $('stopCamBtn') as HTMLButtonElement;
-const offerPaste = $('offerPaste') as HTMLTextAreaElement;
-const pasteOfferBtn = $('pasteOfferBtn') as HTMLButtonElement;
+const pairHint = $('pairHint');
 const answerWrap = $('answerWrap');
 const answerBox = $('answerBox') as HTMLTextAreaElement;
 const copyAnswerBtn = $('copyAnswerBtn') as HTMLButtonElement;
-const answerQR = $('answerQR') as HTMLImageElement;
 
 let peer: Peer | null = null;
 let connected = false;
-let cameraStream: MediaStream | null = null;
-let scanning = false;
 
 function setStatus(text: string): void {
   statusEl.textContent = text;
@@ -43,8 +33,6 @@ startBtn.addEventListener('click', async () => {
   });
   startBtn.disabled = true;
   startBtn.textContent = 'Motion enabled';
-  pairPanel.classList.remove('hidden');
-  setStatus('Motion ready. Scan the game QR to pair.');
 });
 
 // ---- WebRTC (responder: phone) ---------------------------------------------
@@ -56,6 +44,7 @@ function ensurePeer(): Peer {
     onOpen: () => {
       connected = true;
       setStatus('Connected. Tilt to steer!');
+      pairHint.textContent = 'Linked with the game.';
     },
     onData: (m: Msg) => {
       if (m.kind === 'win') navigator.vibrate?.(180);
@@ -69,18 +58,10 @@ function ensurePeer(): Peer {
   return peer;
 }
 
-async function showAnswer(answer: unknown): Promise<void> {
-  const text = JSON.stringify(answer);
-  answerBox.value = text;
+function showAnswer(answer: unknown): void {
+  answerBox.value = JSON.stringify(answer);
   answerWrap.classList.remove('hidden');
-  setStatus('Got the answer. Copy it and paste it into the computer.');
-  try {
-    const url = await toDataURL(text, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
-    answerQR.src = url;
-    answerQR.classList.remove('hidden');
-  } catch {
-    // QR is optional; copy-paste still works.
-  }
+  setStatus('Copy the answer and paste it into the computer to connect.');
 }
 
 copyAnswerBtn.addEventListener('click', async () => {
@@ -93,86 +74,28 @@ copyAnswerBtn.addEventListener('click', async () => {
   }
 });
 
-// ---- Offer: scan QR or paste ------------------------------------------------
+// ---- Offer: read from the URL the game's QR points at -----------------------
 function applyOffer(offer: unknown): void {
   const p = ensurePeer();
   try {
     p.signal(offer as Parameters<Peer['signal']>[0]);
-    setStatus('Offer received. Wait for the answer, then send it to the computer.');
+    pairHint.textContent =
+      'Offer received from the link. Your answer is being prepared…';
   } catch (e) {
+    pairHint.textContent = 'The offer in the link could not be used.';
     setStatus('Bad offer: ' + (e as Error).message);
   }
 }
 
-pasteOfferBtn.addEventListener('click', () => {
+const offerParam = new URLSearchParams(location.search).get('offer');
+if (offerParam) {
   try {
-    applyOffer(JSON.parse(offerPaste.value));
+    applyOffer(JSON.parse(offerParam));
   } catch {
-    setStatus('Could not parse the pasted offer. Check the JSON.');
+    pairHint.textContent = 'The offer in the link is malformed.';
+    setStatus('This link is broken. Re-scan the QR on the computer.');
   }
-});
-
-async function startCamera(): Promise<void> {
-  if (scanning) return;
-  scanning = true;
-  cam.classList.remove('hidden');
-  stopCamBtn.classList.remove('hidden');
-  scanBtn.textContent = 'Scanning...';
-  try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' },
-    });
-    cam.srcObject = cameraStream;
-    await cam.play();
-  } catch {
-    stopCamera();
-    setStatus('Camera unavailable. Use "Paste the offer" instead.');
-    return;
-  }
-  scanLoop();
+} else {
+  pairHint.textContent = 'This page was opened without a pairing link.';
+  setStatus('Scan the QR on the computer screen — it opens this page for you.');
 }
-
-function scanLoop(): void {
-  if (!scanning) return;
-  const w = cam.videoWidth;
-  const h = cam.videoHeight;
-  if (w > 0 && h > 0) {
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    const cx = c.getContext('2d', { willReadFrequently: true });
-    if (cx) {
-      cx.drawImage(cam, 0, 0, w, h);
-      const img = cx.getImageData(0, 0, w, h);
-      const code = jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
-      if (code && code.data) {
-        stopCamera();
-        try {
-          applyOffer(JSON.parse(code.data));
-          return;
-        } catch {
-          setStatus('Scanned something that is not the offer. Try again.');
-        }
-      }
-    }
-  }
-  requestAnimationFrame(scanLoop);
-}
-
-function stopCamera(): void {
-  scanning = false;
-  cameraStream?.getTracks().forEach((t) => t.stop());
-  cameraStream = null;
-  cam.classList.add('hidden');
-  stopCamBtn.classList.add('hidden');
-  scanBtn.textContent = 'Scan offer QR';
-}
-
-scanBtn.addEventListener('click', () => {
-  if (scanning) {
-    stopCamera();
-  } else {
-    void startCamera();
-  }
-});
-stopCamBtn.addEventListener('click', stopCamera);
