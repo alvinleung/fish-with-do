@@ -248,6 +248,14 @@ function startSession(): void {
         tiltDebug.textContent = 'got: ' + m.kind;
       }
     },
+    onRawData: (raw: unknown) => {
+      const t =
+        raw && (raw as object).constructor
+          ? (raw as object).constructor.name
+          : typeof raw;
+      tiltDebug.textContent =
+        'raw ' + t + (typeof raw === 'string' ? ': ' + raw.slice(0, 40) : '');
+    },
     onClose: () => {
       pairPanel.classList.remove('hidden');
       setStatus('Controller disconnected. Use "New code" and pair again.');

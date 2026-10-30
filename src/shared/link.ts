@@ -9,6 +9,9 @@ export type LinkOptions = {
   onSignal?: (signal: unknown) => void;
   onOpen?: () => void;
   onData?: (data: Msg) => void;
+  // Fired only when a received frame could not be decoded into a {kind,...}
+  // message. Useful for diagnosing unexpected wire types.
+  onRawData?: (raw: unknown) => void;
   onClose?: () => void;
   onError?: (err: Error) => void;
 };
@@ -49,6 +52,36 @@ function finalizedSdp(peer: PeerInstance, fallback: string): Promise<string> {
   });
 }
 
+// Tilt frames are JSON, but a WebRTC data channel can hand them back as a text
+// string or as binary (ArrayBuffer / typed array / Blob) depending on the
+// browser and simple-peer's binaryType. Decode every possible shape so the app
+// always receives a real {kind,...} object.
+async function toText(d: unknown): Promise<string | null> {
+  if (typeof d === 'string') return d;
+  if (typeof ArrayBuffer !== 'undefined' && d instanceof ArrayBuffer) {
+    return new TextDecoder().decode(new Uint8Array(d));
+  }
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(d)) {
+    return new TextDecoder().decode(d as ArrayBufferView);
+  }
+  if (typeof Blob !== 'undefined' && d instanceof Blob) {
+    return (d as Blob).text();
+  }
+  return null;
+}
+
+async function decodeFrame(d: unknown): Promise<Msg | null> {
+  const text = await toText(d);
+  if (text === null) return null;
+  try {
+    const o = JSON.parse(text) as Msg;
+    if (o && typeof o === 'object' && typeof o.kind === 'string') return o;
+  } catch {
+    // not JSON — fall through to null
+  }
+  return null;
+}
+
 // Creates a WebRTC peer with a single data channel. With trickle:false each
 // side emits exactly one "signal" (offer or answer) carrying all ICE
 // candidates inline, which is what makes QR / copy-paste pairing possible
@@ -73,12 +106,10 @@ export function createLink(opts: LinkOptions): PeerInstance {
   // simple-peer's "we are connected" event is 'connect' (not 'open').
   peer.on('connect', () => opts.onOpen?.());
   peer.on('data', (d: unknown) => {
-    try {
-      const msg = (typeof d === 'string' ? JSON.parse(d) : d) as Msg;
-      opts.onData?.(msg);
-    } catch {
-      // ignore non-JSON payloads
-    }
+    void decodeFrame(d).then((msg) => {
+      if (msg) opts.onData?.(msg);
+      else opts.onRawData?.(d);
+    });
   });
   peer.on('close', () => opts.onClose?.());
   peer.on('error', (e: unknown) => opts.onError?.(e as Error));
