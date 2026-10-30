@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vercel/kv": "^3.0.0",
+    "ioredis": "^6.0.0",
     "matter-js": "^0.20.0",
     "qrcode": "^1.5.4",
     "simple-peer": "^9.11.1"
