@@ -21,6 +21,34 @@ const RTC_CONFIG: RTCConfiguration = {
   iceServers: [],
 };
 
+// simple-peer emits its "signal" (offer/answer) from a snapshot of
+// localDescription that can be taken before ICE candidates are flushed in,
+// which would ship a QR / payload with no candidates and silently fail to
+// connect. Re-read the SDP once gathering has completed so the emitted blob
+// always carries every candidate. Falls back to the original SDP if we can't
+// observe the underlying RTCPeerConnection.
+function finalizedSdp(peer: PeerInstance, fallback: string): Promise<string> {
+  const pc = (peer as unknown as { _pc?: RTCPeerConnection })._pc;
+  if (!pc || !pc.localDescription) return Promise.resolve(fallback);
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      pc.removeEventListener('icegatheringstatechange', check);
+      resolve(pc.localDescription?.sdp || fallback);
+    };
+    const check = () => {
+      if (pc.iceGatheringState === 'complete') finish();
+    };
+    const timer = setTimeout(finish, 2500); // never block pairing forever
+    if (pc.iceGatheringState === 'complete') {
+      finish();
+      return;
+    }
+    pc.addEventListener('icegatheringstatechange', check);
+    check();
+  });
+}
+
 // Creates a WebRTC peer with a single data channel. With trickle:false each
 // side emits exactly one "signal" (offer or answer) carrying all ICE
 // candidates inline, which is what makes QR / copy-paste pairing possible
@@ -32,8 +60,18 @@ export function createLink(opts: LinkOptions): PeerInstance {
     config: RTC_CONFIG,
   });
 
-  peer.on('signal', (sig: unknown) => opts.onSignal?.(sig));
-  peer.on('open', () => opts.onOpen?.());
+  peer.on('signal', (sig: unknown) => {
+    const s = sig as { type?: string; sdp?: string };
+    if (s && typeof s.sdp === 'string') {
+      void finalizedSdp(peer, s.sdp).then((sdp) =>
+        opts.onSignal?.({ type: s.type, sdp })
+      );
+    } else {
+      opts.onSignal?.(sig);
+    }
+  });
+  // simple-peer's "we are connected" event is 'connect' (not 'open').
+  peer.on('connect', () => opts.onOpen?.());
   peer.on('data', (d: unknown) => {
     try {
       const msg = (typeof d === 'string' ? JSON.parse(d) : d) as Msg;
