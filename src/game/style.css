@@ -49,6 +49,14 @@ h2 {
   font-weight: 600;
 }
 
+.tilt-debug {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-width: 12ch;
+  text-align: right;
+}
+
 button {
   font: inherit;
   border: 1px solid var(--border);

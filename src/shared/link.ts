@@ -13,12 +13,12 @@ export type LinkOptions = {
   onError?: (err: Error) => void;
 };
 
-// "Same place" use case: rely on host candidates so the two devices on the
-// same LAN / phone hotspot connect instantly and the QR stays compact.
-// To work across different networks, add a STUN server here, e.g.
-//   { urls: 'stun:stun.l.google.com:19302' }
+// STUN lets each device learn its public address so pairing works even when the
+// phone is on cellular and the computer is on Wi‑Fi. It only helps ICE find the
+// path — it sees no game data, which stays peer‑to‑peer. Host candidates still
+// let same‑LAN / phone‑hotspot pairing connect instantly.
 const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [],
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
 };
 
 // simple-peer emits its "signal" (offer/answer) from a snapshot of

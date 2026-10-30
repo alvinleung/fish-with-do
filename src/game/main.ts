@@ -23,6 +23,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
 const canvas = $('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 const statusEl = $('status');
+const tiltDebug = $('tiltDebug');
 const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
 const pairPanel = $('pair');
 const pairQR = $('pairQR') as HTMLImageElement;
@@ -202,7 +203,11 @@ function startSession(): void {
       resetBall();
     },
     onData: (m: Msg) => {
-      if (m.kind === 'tilt') latest = { x: m.x, y: m.y };
+      if (m.kind === 'tilt') {
+        latest = { x: m.x, y: m.y };
+        tiltDebug.textContent =
+          'recv ' + m.x.toFixed(2) + ', ' + m.y.toFixed(2);
+      }
     },
     onClose: () => {
       pairPanel.classList.remove('hidden');
