@@ -98,6 +98,17 @@ button:active {
   margin: 0 0 8px;
 }
 
+.room-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  text-align: center;
+  color: var(--text);
+  margin: 4px 0 8px;
+}
+
 .pair-row {
   display: flex;
   align-items: center;
@@ -115,20 +126,6 @@ button:active {
   padding: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.75rem;
-  margin: 8px 0;
-}
-
-textarea {
-  width: 100%;
-  min-height: 80px;
-  resize: vertical;
-  background: #0a1120;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
   margin: 8px 0;
 }
 

@@ -1,5 +1,6 @@
 import type { Instance as Peer } from 'simple-peer';
 import { createLink, sendMsg } from '../shared/link';
+import { postSignal, waitForSignal } from '../shared/signal';
 import { requestMotionPermission, startTilt } from '../shared/tilt';
 import type { Msg } from '../shared/protocol';
 import './style.css';
@@ -10,9 +11,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
 const statusEl = $('status');
 const startBtn = $('startBtn') as HTMLButtonElement;
 const pairHint = $('pairHint');
-const answerWrap = $('answerWrap');
-const answerBox = $('answerBox') as HTMLTextAreaElement;
-const copyAnswerBtn = $('copyAnswerBtn') as HTMLButtonElement;
+const roomCodeEl = $('roomCode');
 
 let peer: Peer | null = null;
 let connected = false;
@@ -22,6 +21,8 @@ function setStatus(text: string): void {
 }
 
 // ---- Motion -----------------------------------------------------------------
+// iOS needs an explicit user gesture to unlock the orientation sensor, so the
+// button both requests permission and starts streaming tilt.
 startBtn.addEventListener('click', async () => {
   const granted = await requestMotionPermission();
   if (!granted) {
@@ -36,11 +37,29 @@ startBtn.addEventListener('click', async () => {
 });
 
 // ---- WebRTC (responder: phone) ---------------------------------------------
-function ensurePeer(): Peer {
-  if (peer) return peer;
+// Drop loopback ICE candidates before shipping the answer through the relay.
+function trimSdp(sdp: string): string {
+  return sdp
+    .split('\n')
+    .filter((line) => !line.startsWith('a=candidate:') || !line.includes(' 127.0.0.1 '))
+    .join('\n');
+}
+
+function applyRoom(roomCode: string): void {
+  roomCodeEl.textContent = roomCode;
+  setStatus('Waiting for the game…');
+  pairHint.textContent = 'Listening for the game… it sends the offer automatically.';
+
   peer = createLink({
     initiator: false,
-    onSignal: (answer) => showAnswer(answer),
+    onSignal: (sig) => {
+      const s = sig as { type?: string; sdp?: string };
+      if (s?.type === 'answer' && s.sdp) {
+        // Mirror of the game's offer: ship {type, sdp} as JSON so the game can
+        // JSON.parse it and hand the object to simple-peer's signal().
+        void postSignal(roomCode, 'answer', JSON.stringify({ type: s.type, sdp: trimSdp(s.sdp) }));
+      }
+    },
     onOpen: () => {
       connected = true;
       setStatus('Connected. Tilt to steer!');
@@ -55,47 +74,25 @@ function ensurePeer(): Peer {
     },
     onError: (e) => setStatus('Link error: ' + e.message),
   });
-  return peer;
+  if (location.search.includes('debug=1')) (window as Window & { __peer?: unknown }).__peer = peer;
+
+  // Poll the relay for the game's offer. Once it arrives we answer, and the
+  // onSignal handler above ships the answer back — completing the handshake
+  // with no copy/paste.
+  void waitForSignal(roomCode, 'offer')
+    .then((offer) => {
+      peer?.signal(JSON.parse(offer));
+      setStatus('Answering…');
+    })
+    .catch((e) => {
+      setStatus('Could not reach the relay: ' + (e as Error).message);
+    });
 }
 
-function showAnswer(answer: unknown): void {
-  answerBox.value = JSON.stringify(answer);
-  answerWrap.classList.remove('hidden');
-  setStatus('Copy the answer and paste it into the computer to connect.');
-}
-
-copyAnswerBtn.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(answerBox.value);
-    copyAnswerBtn.textContent = 'Copied!';
-    setTimeout(() => (copyAnswerBtn.textContent = 'Copy answer'), 1500);
-  } catch {
-    setStatus('Copy failed. Select the text and copy manually.');
-  }
-});
-
-// ---- Offer: read from the URL the game's QR points at -----------------------
-function applyOffer(offer: unknown): void {
-  const p = ensurePeer();
-  try {
-    p.signal(offer as Parameters<Peer['signal']>[0]);
-    pairHint.textContent =
-      'Offer received from the link. Your answer is being prepared…';
-  } catch (e) {
-    pairHint.textContent = 'The offer in the link could not be used.';
-    setStatus('Bad offer: ' + (e as Error).message);
-  }
-}
-
-const offerParam = new URLSearchParams(location.search).get('offer');
-if (offerParam) {
-  try {
-    applyOffer(JSON.parse(offerParam));
-  } catch {
-    pairHint.textContent = 'The offer in the link is malformed.';
-    setStatus('This link is broken. Re-scan the QR on the computer.');
-  }
+const roomParam = new URLSearchParams(location.search).get('room');
+if (roomParam) {
+  applyRoom(roomParam.toUpperCase());
 } else {
-  pairHint.textContent = 'This page was opened without a pairing link.';
+  pairHint.textContent = 'This page was opened without a room code.';
   setStatus('Scan the QR on the computer screen — it opens this page for you.');
 }

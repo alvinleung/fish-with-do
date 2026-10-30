@@ -1,10 +1,10 @@
 # Fish With Do
 
 Steer a ball through a maze on your **computer** using the **accelerometer/tilt
-of your phone**. The two browsers talk **peer-to-peer over WebRTC** — there is
-**no backend server**. A free static host (Vercel) is only used to serve the
-two web pages over **HTTPS**, which iOS requires for both the motion sensor and
-WebRTC.
+of your phone**. The two browsers talk **peer-to-peer over WebRTC** — the
+gameplay never touches a server. A tiny **serverless signaling relay** (a Vercel
+function + Vercel KV) is used **only for the one-time pairing handshake**; after
+that, all tilt data flows directly between the two devices.
 
 ## How it works
 
@@ -13,25 +13,25 @@ WebRTC.
   channel.
 - **Game page** (computer): a Matter.js maze. The incoming tilt sets the world
   gravity, so the ball rolls toward the direction you tilt. Reach the green goal.
-- **Pairing (no signaling server):** the computer generates a WebRTC **offer**
-  and shows a **QR code that points straight at the controller page** with the
-  offer embedded in the URL (`controller.html?offer=…`). The phone scans it with
-  its **system camera** (no in-app scanner), the controller page **reads the
-  offer from the URL**, builds the **answer**, and you copy-paste the answer
-  back into the computer (it auto-connects on paste). This uses
-  `trickle: false` so each side produces a single self-contained SDP blob (all
-  ICE candidates inline, loopback candidates trimmed) that fits in one QR / one
-  paste.
+- **Pairing (one scan, auto-connect):** the computer picks a short **room code**
+  and shows a **QR code that points at the controller page** carrying just that
+  code (`controller.html?room=CODE`). It posts its WebRTC **offer** to the relay
+  and starts polling for the **answer**. The phone scans the QR with its
+  **system camera** (no in-app scanner), reads the room code from the URL, polls
+  the relay for the offer, builds the **answer**, and posts it back. The two
+  rendezvous through the relay and the WebRTC connection opens with no
+  copy/paste. Each side emits one self-contained SDP blob (`trickle: false`,
+  all ICE candidates inline, loopback trimmed).
 
 ## Stack
 
 | Piece      | Choice |
 |------------|--------|
 | Build      | Vite + TypeScript (multi-page) |
-| Hosting    | Vercel (free HTTPS static) |
+| Hosting    | Vercel (free HTTPS static + serverless function) |
 | Sensor     | `DeviceOrientation` (iOS permission on tap) |
-| Transport  | WebRTC via `simple-peer` (`trickle: false`) |
-| Pairing    | `qrcode` (controller URL with embedded offer) + `URLSearchParams` |
+| Transport  | WebRTC via `simple-peer` (`trickle: false`) — P2P, no server relay of gameplay |
+| Pairing    | `qrcode` (room-code URL) + a `/api/signal` relay (Vercel function + KV) |
 | Game       | Matter.js 2D physics, custom canvas renderer |
 
 ## Run locally
@@ -60,21 +60,32 @@ auto-detected). You get two HTTPS URLs:
 - `<app>.vercel.app/controller.html` → open on the phone
 - `<app>.vercel.app/game.html` → open on the computer
 
+### Enable the signaling relay (one-time)
+
+Pairing uses `/api/signal`, a serverless function backed by **Vercel KV**
+(Redis). Link a KV store to the project so the function can read/write it:
+
+1. In the Vercel dashboard: **Project → Storage → Add Integration → Vercel KV**
+   (or `npx vercel kv add`). Vercel injects `KV_REST_API_URL` and
+   `KV_REST_API_TOKEN` into the function automatically.
+2. Re-deploy. KV has a free tier, which is far more than this needs.
+
+> Locally you don't need KV: `npm run dev` / `npm run preview` mount an
+> in-memory relay at the same `/api/signal` path (see `vite.config.ts`).
+
 ## Pairing steps
 
-1. On the **computer**, open the Game page. A QR code appears automatically
-   (no button needed).
+1. On the **computer**, open the Game page. A QR code and a 4-letter **room
+   code** appear automatically (no button needed).
 2. On the **phone**, scan the QR with the **system camera** (iPhone camera
-   app). The Controller page opens by itself with the offer already in the URL.
-3. Tap **Enable motion** (grant the iOS permission).
-4. The phone shows your **answer**. Tap **Copy answer**.
-5. On the **computer**, paste the answer into the answer box — it connects
-   automatically (or click **Connect**).
-6. Both show "connected" — tilt your phone to steer.
+   app). The Controller page opens by itself.
+3. That's it — the phone and computer exchange the WebRTC handshake through the
+   relay and both show **"connected"**. No copy/paste.
+4. Tap **Enable motion** (grant the iOS permission) and tilt to steer.
 
-If the QR is too dense to scan, expand **"QR won't scan? Copy this URL to your
-phone"** on the Game page, copy it, and open it in the phone's browser instead.
-Use **New QR** to generate a fresh pairing link if a session goes stale.
+If the QR won't scan, expand **"QR won't scan? Open this URL on your phone"**
+on the Game page and open that URL in the phone's browser instead. Use
+**New code** to generate a fresh room if a session goes stale.
 
 ## Tuning
 
@@ -91,5 +102,7 @@ Use **New QR** to generate a fresh pairing link if a session goes stale.
 
 - iOS requires a **user gesture** to grant motion permission, hence the
   **Enable motion** button, and the page must be **HTTPS**.
-- The connection is one-shot; if it drops, click **New QR** and re-pair.
+- The connection is one-shot; if it drops, click **New code** and re-pair.
+- The relay only carries the one-time handshake SDP (a few KB) and drops it
+  after ~5 minutes; it never sees any gameplay data.
 - The data channel carries only tiny tilt JSON, so bandwidth is negligible.

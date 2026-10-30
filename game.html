@@ -13,22 +13,17 @@
       </header>
 
       <div id="pair" class="panel">
-        <h2>1. Pair your phone</h2>
+        <h2>Pair your phone</h2>
         <img id="pairQR" class="qr hidden" alt="Pairing QR — scan with your phone" />
+        <p id="roomCode" class="room-code"></p>
         <p id="qrHint" class="hint">Generating the QR code…</p>
         <div class="pair-row">
           <details class="fallback">
-            <summary>QR won't scan? Copy this URL to your phone</summary>
+            <summary>QR won't scan? Open this URL on your phone</summary>
             <input id="linkUrl" readonly />
             <button id="copyUrlBtn">Copy URL</button>
           </details>
-          <button id="newSessionBtn" class="ghost">New QR</button>
-        </div>
-
-        <div id="answerWrap">
-          <h2>2. Paste the answer from your phone</h2>
-          <textarea id="answerBox" placeholder="paste the answer JSON — it connects automatically"></textarea>
-          <button id="connectBtn" class="primary">Connect</button>
+          <button id="newSessionBtn" class="ghost">New code</button>
         </div>
       </div>
 

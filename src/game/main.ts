@@ -2,6 +2,7 @@ import Matter from 'matter-js';
 import { toDataURL } from 'qrcode';
 import type { Instance as Peer } from 'simple-peer';
 import { createLink, sendMsg } from '../shared/link';
+import { postSignal, waitForSignal } from '../shared/signal';
 import type { Msg } from '../shared/protocol';
 import {
   CANVAS_W,
@@ -25,11 +26,10 @@ const statusEl = $('status');
 const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
 const pairPanel = $('pair');
 const pairQR = $('pairQR') as HTMLImageElement;
+const roomCodeEl = $('roomCode');
 const qrHint = $('qrHint');
 const linkUrl = $('linkUrl') as HTMLInputElement;
 const copyUrlBtn = $('copyUrlBtn') as HTMLButtonElement;
-const answerBox = $('answerBox') as HTMLTextAreaElement;
-const connectBtn = $('connectBtn') as HTMLButtonElement;
 const winOverlay = $('winOverlay');
 const winTimeEl = $('winTime');
 const againBtn = $('againBtn') as HTMLButtonElement;
@@ -140,40 +140,62 @@ function setStatus(text: string): void {
   statusEl.textContent = text;
 }
 
-// Loopback ICE candidates are useless to the remote peer and bloat the QR,
-// so drop them before shipping the offer.
-function trimOffer(offer: unknown): unknown {
-  const o = offer as { sdp?: string };
-  if (!o || typeof o.sdp !== 'string') return offer;
-  const sdp = o.sdp
+// Loopback ICE candidates are useless to the remote peer and only bloat the
+// SDP that passes through the relay, so drop them before shipping it.
+function trimSdp(sdp: string): string {
+  return sdp
     .split('\n')
-    .filter(
-      (line) =>
-        !line.startsWith('a=ice-candidate:') || !line.includes(' 127.0.0.1 ')
-    )
+    .filter((line) => !line.startsWith('a=candidate:') || !line.includes(' 127.0.0.1 '))
     .join('\n');
-  return { ...o, sdp };
 }
 
-// The QR points straight at the controller page with the offer embedded in
-// the URL, so scanning it both opens the right page and hands the phone its
-// half of the WebRTC handshake.
-function controllerUrl(offer: unknown): string {
-  const q = new URLSearchParams();
-  q.set('offer', JSON.stringify(trimOffer(offer)));
-  return `${location.origin}/controller.html?${q.toString()}`;
+// The QR points straight at the controller page carrying just the room code.
+// Scanning it opens the right page; the two sides then rendezvous through the
+// /api/signal relay to finish the WebRTC handshake with no further input.
+function roomUrl(room: string): string {
+  return `${location.origin}/controller.html?room=${room}`;
 }
+
+// Short, unambiguous room code (no 0/O, 1/I/l) — enough for ephemeral rooms.
+const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function makeRoom(): string {
+  const bytes = new Uint32Array(4);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (n) => ROOM_ALPHABET[n % ROOM_ALPHABET.length]).join('');
+}
+
+let room = '';
+let pollAbort: AbortController | null = null;
 
 function startSession(): void {
   peer?.destroy();
   peer = null;
+  pollAbort?.abort();
+  pollAbort = new AbortController();
+  room = makeRoom();
+
   pairQR.classList.add('hidden');
+  roomCodeEl.textContent = room;
+  linkUrl.value = roomUrl(room);
   qrHint.textContent = 'Generating the QR code…';
   setStatus('Preparing pairing…');
+
   const p = createLink({
     initiator: true,
-    onSignal: (offer) => void renderPairing(offer),
+    onSignal: (sig) => {
+      const s = sig as { type?: string; sdp?: string };
+      if (s?.type === 'offer' && s.sdp) {
+        // Ship the full signal object as JSON; the phone JSON.parses it and
+        // hands the {type, sdp} object to simple-peer's signal().
+        void postSignal(room, 'offer', JSON.stringify({ type: s.type, sdp: trimSdp(s.sdp) })).then(() => {
+          if (statusEl.textContent.startsWith('Preparing')) {
+            setStatus('Waiting for the phone to scan…');
+          }
+        });
+      }
+    },
     onOpen: () => {
+      pollAbort?.abort();
       setStatus('Controller connected. Tilt to steer!');
       pairPanel.classList.add('hidden');
       sendMsg(p, { kind: 'hello' });
@@ -184,31 +206,33 @@ function startSession(): void {
     },
     onClose: () => {
       pairPanel.classList.remove('hidden');
-      setStatus('Controller disconnected. Use "New QR" and pair again.');
+      setStatus('Controller disconnected. Use "New code" and pair again.');
     },
     onError: (e) => setStatus('Link error: ' + e.message),
   });
   peer = p;
-}
+  if (location.search.includes('debug=1')) (window as Window & { __peer?: unknown }).__peer = p;
 
-async function renderPairing(offer: unknown): Promise<void> {
-  const url = controllerUrl(offer);
-  linkUrl.value = url;
-  try {
-    const dataUrl = await toDataURL(url, {
-      errorCorrectionLevel: 'L',
-      margin: 1,
-      width: 480,
+  // The QR is just the room URL — tiny and scans instantly.
+  void toDataURL(roomUrl(room), { errorCorrectionLevel: 'M', margin: 2, width: 320 })
+    .then((dataUrl) => {
+      pairQR.src = dataUrl;
+      pairQR.classList.remove('hidden');
+      qrHint.textContent = 'Scan with your phone — it connects automatically.';
+    })
+    .catch(() => {
+      qrHint.textContent = 'QR unavailable — use the code below or copy the URL.';
     });
-    pairQR.src = dataUrl;
-    pairQR.classList.remove('hidden');
-    qrHint.textContent =
-      'Scan with your phone — it opens the controller page and prepares the answer.';
-    setStatus('Waiting for the phone. Paste the answer it shows you.');
-  } catch {
-    qrHint.textContent =
-      'The QR is too dense to render. Use "Copy this URL" below instead.';
-  }
+
+  // Poll for the phone's answer, then complete the handshake.
+  void waitForSignal(room, 'answer', pollAbort.signal)
+    .then((answer) => {
+      peer?.signal(JSON.parse(answer));
+      setStatus('Connecting…');
+    })
+    .catch(() => {
+      // Aborted by a new session, or the page closed — nothing to do.
+    });
 }
 
 newSessionBtn.addEventListener('click', startSession);
@@ -222,23 +246,6 @@ copyUrlBtn.addEventListener('click', async () => {
     setStatus('Copy failed. Select the URL and copy manually.');
   }
 });
-
-function tryConnect(): void {
-  if (!peer) {
-    setStatus('Session is being prepared — try again in a second.');
-    return;
-  }
-  try {
-    peer.signal(JSON.parse(answerBox.value));
-    setStatus('Waiting for the connection to open…');
-  } catch {
-    setStatus('Could not parse the answer. Check the JSON.');
-  }
-}
-
-connectBtn.addEventListener('click', tryConnect);
-// Pasting the answer connects immediately — no extra button click.
-answerBox.addEventListener('paste', () => setTimeout(tryConnect, 0));
 
 // Auto-start: the QR appears as soon as the page loads.
 startSession();

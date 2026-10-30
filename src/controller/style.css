@@ -104,35 +104,16 @@ button:disabled {
   line-height: 1.5;
 }
 
-.cam {
-  width: 100%;
-  border-radius: 12px;
-  margin: 12px 0;
-  background: #000;
-}
-
-.qr {
-  width: 240px;
-  height: 240px;
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px;
-  display: block;
-  margin: 10px auto;
-}
-
-textarea {
-  width: 100%;
-  min-height: 90px;
-  resize: vertical;
-  background: #0a1120;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
+.room-code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8rem;
-  margin: 8px 0;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  text-align: center;
+  color: var(--text);
+  margin: 4px 0 8px;
+  min-height: 1.2em;
 }
 
 .fallback {
