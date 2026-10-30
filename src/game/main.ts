@@ -42,7 +42,7 @@ canvas.height = CANVAS_H;
 // backwards, or tune GRAVITY_SCALE for more/less responsiveness.
 const GRAVITY_SCALE = 0.8;
 const INVERT_X = false;
-const INVERT_Y = true;
+const INVERT_Y = false;
 
 // ---- Physics ---------------------------------------------------------------
 const engine = Engine.create();
