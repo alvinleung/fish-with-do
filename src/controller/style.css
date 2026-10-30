@@ -56,6 +56,15 @@ h3 {
   font-weight: 600;
 }
 
+.tilt-readout {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  color: var(--muted);
+  text-align: center;
+  margin: 2px 0 6px;
+  min-height: 1.3em;
+}
+
 button {
   font: inherit;
   border: 1px solid var(--border);

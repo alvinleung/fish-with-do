@@ -12,6 +12,7 @@ const statusEl = $('status');
 const startBtn = $('startBtn') as HTMLButtonElement;
 const pairHint = $('pairHint');
 const roomCodeEl = $('roomCode');
+const tiltReadout = $('tiltReadout');
 
 let peer: Peer | null = null;
 let connected = false;
@@ -31,6 +32,9 @@ startBtn.addEventListener('click', async () => {
   }
   startTilt((v) => {
     if (connected && peer) sendMsg(peer, { kind: 'tilt', x: v.x, y: v.y });
+    tiltReadout.textContent =
+      `x ${v.x.toFixed(2)}   y ${v.y.toFixed(2)}` +
+      (connected ? '' : '   (not connected yet — values still updating)');
   });
   startBtn.disabled = true;
   startBtn.textContent = 'Motion enabled';
