@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Controller (Phone)</title>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Controller</h1>
+      <p class="sub">Hold your phone and tilt to steer the ball.</p>
+      <div id="status" class="status">Idle</div>
+
+      <button id="startBtn" class="primary">Enable motion</button>
+
+      <div id="pair" class="panel hidden">
+        <h2>Pair with the game</h2>
+        <p class="hint">Scan the QR code on the computer screen, then send the answer it shows back.</p>
+        <button id="scanBtn" class="primary">Scan offer QR</button>
+
+        <video id="cam" class="cam hidden" playsinline muted></video>
+        <button id="stopCamBtn" class="ghost hidden">Stop camera</button>
+
+        <details class="fallback">
+          <summary>Can't scan? Paste the offer manually</summary>
+          <textarea id="offerPaste" placeholder="paste offer JSON"></textarea>
+          <button id="pasteOfferBtn">Use pasted offer</button>
+        </details>
+
+        <div id="answerWrap" class="hidden">
+          <h3>Your answer</h3>
+          <textarea id="answerBox" readonly placeholder="answer will appear here"></textarea>
+          <button id="copyAnswerBtn" class="primary">Copy answer</button>
+          <img id="answerQR" class="qr hidden" alt="answer QR" />
+          <p class="hint">Paste this into the computer's answer box. (If the computer has a webcam it can also scan this QR.)</p>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/controller/main.ts"></script>
+  </body>
+</html>

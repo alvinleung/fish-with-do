@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Maze Ball (Computer)</title>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>Maze Ball</h1>
+        <span id="status" class="status">Waiting for controller</span>
+      </header>
+
+      <div id="pair" class="panel">
+        <button id="newSessionBtn" class="primary">New session</button>
+
+        <div id="offerWrap" class="hidden">
+          <h2>1. Show this QR to the phone</h2>
+          <img id="offerQR" class="qr" alt="offer QR" />
+          <details class="fallback">
+            <summary>Copy the offer (if the phone can't scan)</summary>
+            <textarea id="offerBox" readonly></textarea>
+            <button id="copyOfferBtn">Copy offer</button>
+          </details>
+        </div>
+
+        <div id="answerWrap">
+          <h2>2. Paste the answer from the phone</h2>
+          <textarea id="answerBox" placeholder="paste answer JSON"></textarea>
+          <button id="connectBtn" class="primary">Connect</button>
+        </div>
+      </div>
+
+      <div id="stage">
+        <canvas id="game"></canvas>
+        <div id="winOverlay" class="overlay hidden">
+          <div class="overlay-card">
+            <h2>You escaped</h2>
+            <p id="winTime"></p>
+            <button id="againBtn" class="primary">Play again</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/game/main.ts"></script>
+  </body>
+</html>

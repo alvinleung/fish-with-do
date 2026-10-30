@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/controller", "destination": "/controller.html" },
+    { "source": "/game", "destination": "/game.html" }
+  ]
+}

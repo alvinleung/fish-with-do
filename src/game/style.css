@@ -1,0 +1,158 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1220;
+  --panel: #111a2e;
+  --border: #1f2b47;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#app {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 20px 16px 40px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+h2 {
+  font-size: 1.05rem;
+  margin: 0 0 10px;
+}
+
+.status {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+button {
+  font: inherit;
+  border: 1px solid var(--border);
+  background: #0f1a30;
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.primary {
+  background: linear-gradient(180deg, var(--accent), #0ea5e9);
+  color: #04121f;
+  border: none;
+  font-weight: 700;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.qr {
+  width: 280px;
+  height: 280px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+  display: block;
+  margin: 12px auto;
+}
+
+textarea {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  background: #0a1120;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  margin: 8px 0;
+}
+
+.fallback {
+  margin-top: 12px;
+  color: var(--muted);
+}
+
+.fallback summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+#stage {
+  position: relative;
+}
+
+#game {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: #0b1220;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 10, 20, 0.6);
+  border-radius: 16px;
+}
+
+.overlay-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px 36px;
+  text-align: center;
+}
+
+.overlay-card h2 {
+  font-size: 1.6rem;
+  margin: 0 0 8px;
+}
+
+.overlay-card p {
+  color: var(--muted);
+  margin: 0 0 18px;
+}
+
+.hidden {
+  display: none !important;
+}

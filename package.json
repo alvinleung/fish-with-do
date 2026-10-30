@@ -1,0 +1,26 @@
+{
+  "name": "fish-with-do",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run typecheck && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "jsqr": "^1.4.0",
+    "matter-js": "^0.20.0",
+    "qrcode": "^1.5.4",
+    "simple-peer": "^9.11.1"
+  },
+  "devDependencies": {
+    "@types/matter-js": "^0.19.7",
+    "@types/qrcode": "^1.5.5",
+    "@types/simple-peer": "^9.11.9",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vite-plugin-node-polyfills": "^0.28.0"
+  }
+}
