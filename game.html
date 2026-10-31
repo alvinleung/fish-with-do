@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Maze Ball (Computer)</title>
+    <title>Fish With Do (Computer)</title>
   </head>
   <body>
     <div id="app">
       <header>
-        <h1>Maze Ball</h1>
+        <h1>Fish With Do</h1>
         <span id="status" class="status">Preparing pairing…</span>
-        <span id="tiltDebug" class="tilt-debug"></span>
+        <span id="debug" class="tilt-debug"></span>
       </header>
 
       <div id="pair" class="panel">
@@ -30,11 +30,12 @@
 
       <div id="stage">
         <canvas id="game"></canvas>
-        <div id="winOverlay" class="overlay hidden">
+        <div id="resultOverlay" class="overlay hidden">
           <div class="overlay-card">
-            <h2>You escaped</h2>
-            <p id="winTime"></p>
-            <button id="againBtn" class="primary">Play again</button>
+            <img id="resultImg" alt="Catch" />
+            <h2 id="resultName"></h2>
+            <p id="resultDetail"></p>
+            <button id="againBtn" class="primary">Cast again</button>
           </div>
         </div>
       </div>

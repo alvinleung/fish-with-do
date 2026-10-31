@@ -3,16 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Controller (Phone)</title>
+    <title>Fish Reel (Phone)</title>
   </head>
   <body>
     <div id="app">
-      <h1>Controller</h1>
-      <p class="sub">Hold your phone and tilt to steer the ball.</p>
+      <h1>Fish With Do</h1>
+      <p class="sub">
+        You are the reel. Tilt to aim the rod, twist your wrist to crank it, and
+        tap the wheel to cast &amp; strike.
+      </p>
+
+      <div id="reel">
+        <img id="reelBg" alt="" />
+        <img id="reelFg" alt="" />
+      </div>
+
       <div id="status" class="status">Idle</div>
 
       <button id="startBtn" class="primary">Enable motion</button>
-      <p id="tiltReadout" class="tilt-readout">Tap “Enable motion”, then tilt your phone</p>
+      <p id="tiltReadout" class="tilt-readout">Tap “Enable motion”, then hold the phone like a rod</p>
 
       <div id="pair" class="panel">
         <h2>Connection</h2>

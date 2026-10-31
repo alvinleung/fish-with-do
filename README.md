@@ -1,27 +1,38 @@
 # Fish With Do
 
-Steer a ball through a maze on your **computer** using the **accelerometer/tilt
-of your phone**. The two browsers talk **peer-to-peer over WebRTC** — the
-gameplay never touches a server. A tiny **serverless signaling relay** (a Vercel
-function + Vercel KV) is used **only for the one-time pairing handshake**; after
-that, all tilt data flows directly between the two devices.
+**Fish With Do** is a party fishing game: the **computer screen is the lake**,
+and your **phone is the reel** you hold in your hand. The two browsers talk
+**peer-to-peer over WebRTC** — gameplay never touches a server. A tiny
+**serverless signaling relay** (Vercel function + Vercel KV) is used **only for
+the one-time pairing handshake**.
+
+## The controls
+
+Hold the phone like a fishing rod:
+
+- **Tilt** the phone → the rod on screen sweeps left/right (cast far or near).
+- **Twist your wrist** (rotate the phone about its screen) → the reel on the
+  phone spins; every 30° fires a ratchet **haptic tick** (plus a click sound,
+  since iPhones can't vibrate from the web).
+- **Tap the wheel** → cast, strike the bite, or continue.
+
+While a fish is hooked, the phone also **buzzes back at you**: a tap when it
+takes the line, a pattern when you land it, a long one when the line snaps.
 
 ## How it works
 
-- **Controller page** (phone, Safari): reads `DeviceOrientation`, normalizes the
-  tilt to a `-1..1` vector, and streams `{ x, y }` at ~30 Hz over a WebRTC data
-  channel.
-- **Game page** (computer): a Matter.js maze. The incoming tilt sets the world
-  gravity, so the ball rolls toward the direction you tilt. Reach the green goal.
-- **Pairing (one scan, auto-connect):** the computer picks a short **room code**
-  and shows a **QR code that points at the controller page** carrying just that
-  code (`controller.html?room=CODE`). It posts its WebRTC **offer** to the relay
-  and starts polling for the **answer**. The phone scans the QR with its
-  **system camera** (no in-app scanner), reads the room code from the URL, polls
-  the relay for the offer, builds the **answer**, and posts it back. The two
-  rendezvous through the relay and the WebRTC connection opens with no
-  copy/paste. Each side emits one self-contained SDP blob (`trickle: false`,
-  all ICE candidates inline, loopback trimmed).
+- **Controller page** (phone, Safari): reads `DeviceOrientation`. Tilt is
+  normalized to `-1..1` and centered on your actual grip; the wrist twist is
+  the rate of change of `alpha` (rotation about the screen normal). Frames go
+  out at ~30 Hz over a WebRTC data channel as `{ x, y, v }`.
+- **Game page** (computer): a canvas fishing scene. Tilt steers the rod, and
+  the fight is a tension-vs-progress minigame: crank during the fish's rest
+  phases, ease off during its pulls, or the line snaps. Catch fish (trout,
+  carp, bass, salmon) — or junk (CDs and bags, keep the water clean).
+- **Pairing (one scan, auto-connect):** the computer shows a **QR code** that
+  points at the controller page carrying a 4-letter room code. The phone scans
+  it with its system camera, the two sides rendezvous through the relay, and
+  the WebRTC data channel opens with no copy/paste.
 
 ## Stack
 
@@ -29,10 +40,11 @@ that, all tilt data flows directly between the two devices.
 |------------|--------|
 | Build      | Vite + TypeScript (multi-page) |
 | Hosting    | Vercel (free HTTPS static + serverless function) |
-| Sensor     | `DeviceOrientation` (iOS permission on tap) |
+| Sensor     | `DeviceOrientation` (beta/gamma tilt + alpha twist), iOS permission on tap |
+| Feedback   | `navigator.vibrate` (Android) + WebAudio ratchet click (everywhere) |
 | Transport  | WebRTC via `simple-peer` (`trickle: false`) — P2P, no server relay of gameplay |
 | Pairing    | `qrcode` (room-code URL) + a `/api/signal` relay (Vercel function + KV) |
-| Game       | Matter.js 2D physics, custom canvas renderer |
+| Game       | Canvas 2D scene + hand-rolled state machine |
 
 ## Run locally
 
@@ -47,6 +59,9 @@ Open on the **phone**: http://<your-computer-LAN-IP>:5173/controller.html
 > The phone must reach the page over the same network. `npm run dev` binds to
 > the LAN (Vite `server.host`). For the real experience use the HTTPS deploy
 > below, because iOS only exposes the motion sensor in a secure context.
+
+**Play with no phone:** on the game page, `A`/`D` (or arrows) aim the rod,
+`W` cranks the reel, `S` lets line out, `Space` casts/strikes.
 
 ## Deploy (recommended)
 
@@ -76,33 +91,40 @@ Pairing uses `/api/signal`, a serverless function backed by **Vercel KV**
 ## Pairing steps
 
 1. On the **computer**, open the Game page. A QR code and a 4-letter **room
-   code** appear automatically (no button needed).
+   code** appear automatically.
 2. On the **phone**, scan the QR with the **system camera** (iPhone camera
-   app). The Controller page opens by itself.
-3. That's it — the phone and computer exchange the WebRTC handshake through the
-   relay and both show **"connected"**. No copy/paste.
-4. Tap **Enable motion** (grant the iOS permission) and tilt to steer.
+   app). The controller page opens by itself.
+3. That's it — both sides show **"connected"**.
+4. Tap **Enable motion** (grant the iOS permission), hold the phone like a
+   rod, and start fishing.
 
 If the QR won't scan, expand **"QR won't scan? Open this URL on your phone"**
-on the Game page and open that URL in the phone's browser instead. Use
-**New code** to generate a fresh room if a session goes stale.
+on the Game page. Use **New code** to generate a fresh room if a session goes
+stale.
 
 ## Tuning
 
-- **Gravity feel:** `GRAVITY_SCALE`, `INVERT_X`, `INVERT_Y` in
-  `src/game/main.ts`.
+- **Rod sweep range:** `rodAngleFor()` in `src/game/render.ts`.
+- **Cast distance:** `startCast()` in `src/game/main.ts`.
+- **Fight feel:** the `tension`/`progress` coefficients in the `fight` case of
+  `update()` in `src/game/main.ts`; bite window in `BITE_WINDOW`.
+- **Catch table:** species, pull strength, sizes, points and rarity in
+  `src/game/fish.ts`.
 - **Tilt sensitivity:** `MAX_TILT_DEG` in `src/shared/protocol.ts`.
-- **The maze:** edit `WALLS` in `src/game/maze.ts` (a list of rectangles in a
-  900×560 space).
+- **Full-crank threshold:** `MAX_CRANK_RAD_S` in `src/shared/protocol.ts`.
+- **Rod/reel art orientation:** `ROD_TIP_UP` / `ROD_FH` in
+  `src/game/render.ts` (flip if the art is oriented differently).
 - **Work across different networks:** add a STUN server to `RTC_CONFIG` in
-  `src/shared/link.ts`. The default (no STUN) is fastest for two devices on the
-  same LAN / phone hotspot, which is the intended "same place" setup.
+  `src/shared/link.ts`. The default (Google STUN) already covers most cases.
 
 ## Notes & limits
 
 - iOS requires a **user gesture** to grant motion permission, hence the
   **Enable motion** button, and the page must be **HTTPS**.
+- **iPhones cannot vibrate from a web page** (Safari has no Vibration API).
+  The ratchet click sound covers that; Android phones get real haptics.
+- The wrist-twist (`alpha`) reference angle is device-dependent, so only its
+  rate of change is used — no calibration needed.
 - The connection is one-shot; if it drops, click **New code** and re-pair.
 - The relay only carries the one-time handshake SDP (a few KB) and drops it
   after ~5 minutes; it never sees any gameplay data.
-- The data channel carries only tiny tilt JSON, so bandwidth is negligible.

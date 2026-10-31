@@ -45,7 +45,46 @@ h3 {
 
 .sub {
   color: var(--muted);
-  margin: 0 0 18px;
+  margin: 0 0 10px;
+}
+
+#reel {
+  position: relative;
+  width: min(62vmin, 290px);
+  aspect-ratio: 1;
+  margin: 14px auto 6px;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+#reel img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+#reelFg {
+  will-change: transform;
+}
+
+#reel.tapped {
+  animation: reel-pulse 0.18s ease;
+}
+
+@keyframes reel-pulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.94);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .status {

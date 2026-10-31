@@ -1,21 +1,25 @@
-import Matter from 'matter-js';
 import { toDataURL } from 'qrcode';
 import type { Instance as Peer } from 'simple-peer';
 import { createLink, sendMsg } from '../shared/link';
 import { postSignal, waitForSignal } from '../shared/signal';
 import type { Msg } from '../shared/protocol';
+import { MAX_CRANK_RAD_S, clamp } from '../shared/protocol';
+import { CATCHES, pickCatch, randomSize, type CatchDef } from './fish';
 import {
-  CANVAS_W,
-  CANVAS_H,
-  BALL_R,
-  GOAL_R,
-  START,
-  GOAL,
-  WALLS,
-} from './maze';
+  W,
+  H,
+  WATER_Y,
+  draw,
+  rodAngleFor,
+  rodTip,
+  setRodUrl,
+  type GameState,
+  type Scene,
+  type FishView,
+  type Ripple,
+} from './render';
+import rodImgUrl from '../assets/fishing-rod-black.png';
 import './style.css';
-
-const { Engine, Bodies, Composite, Body, Events } = Matter;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
@@ -23,7 +27,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
 const canvas = $('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 const statusEl = $('status');
-const tiltDebug = $('tiltDebug');
+const debugEl = $('debug');
 const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
 const pairPanel = $('pair');
 const pairQR = $('pairQR') as HTMLImageElement;
@@ -31,148 +35,406 @@ const roomCodeEl = $('roomCode');
 const qrHint = $('qrHint');
 const linkUrl = $('linkUrl') as HTMLInputElement;
 const copyUrlBtn = $('copyUrlBtn') as HTMLButtonElement;
-const winOverlay = $('winOverlay');
-const winTimeEl = $('winTime');
+const resultOverlay = $('resultOverlay');
+const resultImg = $('resultImg') as HTMLImageElement;
+const resultName = $('resultName');
+const resultDetail = $('resultDetail');
 const againBtn = $('againBtn') as HTMLButtonElement;
 
-canvas.width = CANVAS_W;
-canvas.height = CANVAS_H;
+canvas.width = W;
+canvas.height = H;
+setRodUrl(rodImgUrl);
 
-// Tilt -> gravity mapping. Flip INVERT_X / INVERT_Y if the ball feels
-// backwards, or tune GRAVITY_SCALE for more/less responsiveness.
-const GRAVITY_SCALE = 0.8;
-const INVERT_X = false;
-const INVERT_Y = false;
+// ---- Game state ------------------------------------------------------------
+const BITE_WINDOW = 1.4; // seconds you have to strike
+const CAST_TIME = 0.8;
 
-// ---- Physics ---------------------------------------------------------------
-const engine = Engine.create();
-const walls = WALLS.map((w) =>
-  Bodies.rectangle(w.x + w.w / 2, w.y + w.h / 2, w.w, w.h, { isStatic: true })
-);
-const ball = Bodies.circle(START.x, START.y, BALL_R, {
-  restitution: 0.2,
-  friction: 0.001,
-  frictionAir: 0.012,
-  label: 'ball',
-});
-const goal = Bodies.circle(GOAL.x, GOAL.y, GOAL_R, {
-  isStatic: true,
-  isSensor: true,
-  label: 'goal',
-});
-Composite.add(engine.world, [...walls, ball, goal]);
+interface ActiveFish {
+  def: CatchDef;
+  size: number;
+  x: number;
+  y: number;
+  dir: 1 | -1;
+  phase: number;
+}
 
-let latest = { x: 0, y: 0 };
-let won = false;
-let startTime = performance.now();
-let peer: Peer | null = null;
-let tiltMsgCount = 0;
+interface AmbientFish {
+  img: string;
+  x: number;
+  y: number;
+  baseY: number;
+  size: number;
+  dir: 1 | -1;
+  speed: number;
+  phase: number;
+}
 
-// Keyboard fallback / diagnostic: arrow keys or WASD drive the same `latest`
-// vector the phone sends, so the game is playable (and testable) with no phone.
-const keys = new Set<string>();
-const KEYMAP: Record<string, [number, number]> = {
-  arrowleft: [-1, 0], a: [-1, 0],
-  arrowright: [1, 0], d: [1, 0],
-  arrowup: [0, -1], w: [0, -1],
-  arrowdown: [0, 1], s: [0, 1],
+const S = {
+  t: 0,
+  state: 'idle' as GameState,
+  stateT: 0,
+  aim: 0,
+  rodAngle: rodAngleFor(0),
+  bobber: { x: 0, y: 0 },
+  bobberBase: { x: 0, y: 0 },
+  bobberDip: 0,
+  lineSlack: 0.55,
+  cast: null as null | { fx: number; fy: number; tx: number; ty: number; t: number },
+  biteT: 0,
+  fish: null as ActiveFish | null,
+  ambient: [] as AmbientFish[],
+  ripples: [] as Ripple[],
+  bursting: false,
+  burstT: 0,
+  tension: 0,
+  progress: 0,
+  flash: null as string | null,
+  flashT: 0,
+  points: 0,
+  catchCount: 0,
+  lastName: null as string | null,
 };
+
+function spawnAmbient(): void {
+  const fishDefs = CATCHES.filter((c) => c.kind === 'fish');
+  S.ambient = Array.from({ length: 3 }, (_, i) => {
+    const def = fishDefs[(i + Math.floor(Math.random() * fishDefs.length)) % fishDefs.length];
+    const baseY = WATER_Y + 70 + Math.random() * (H - WATER_Y - 130);
+    return {
+      img: def.img,
+      x: Math.random() * W,
+      y: baseY,
+      baseY,
+      size: 34 + Math.random() * 26,
+      dir: Math.random() < 0.5 ? 1 : -1,
+      speed: 18 + Math.random() * 26,
+      phase: Math.random() * 6.28,
+    };
+  });
+}
+
+function addRipple(x: number, y: number, max: number): void {
+  S.ripples.push({ x, y, r: 5, max });
+  if (S.ripples.length > 24) S.ripples.shift();
+}
+
+function flash(text: string): void {
+  S.flash = text;
+  S.flashT = 0;
+}
+
+function scheduleBite(): void {
+  S.biteT = 2.5 + Math.random() * 5;
+  const def = pickCatch();
+  S.fish = {
+    def,
+    size: randomSize(def),
+    x: 60 + Math.random() * 320,
+    y: WATER_Y + 70 + Math.random() * 130,
+    dir: 1,
+    phase: Math.random() * 6.28,
+  };
+}
+
+// ---- Input -----------------------------------------------------------------
+let peer: Peer | null = null;
+
+// Latest frame from the phone; keyboard overrides it for desktop testing.
+const phone = { x: 0, y: 0, v: 0, frames: 0 };
+const keys = new Set<string>();
+const KEY_X: Record<string, number> = { a: -1, arrowleft: -1, d: 1, arrowright: 1 };
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
-  if (KEYMAP[k]) {
+  if (k === ' ' && !e.repeat) handleTap();
+  if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown'].includes(k) || k === ' ') {
     keys.add(k);
     e.preventDefault();
   }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
-function keyboardTilt(): { x: number; y: number } | null {
-  let x = 0;
-  let y = 0;
-  keys.forEach((k) => {
-    const v = KEYMAP[k];
-    if (v) {
-      x += v[0];
-      y += v[1];
-    }
-  });
-  if (x === 0 && y === 0) return null;
-  const m = Math.hypot(x, y) || 1;
-  return { x: x / m, y: y / m };
-}
-tiltDebug.textContent = '←↑↓→ / WASD to test · awaiting tilt';
 
-Events.on(engine, 'collisionStart', (ev) => {
-  if (won) return;
-  for (const pair of ev.pairs) {
-    if (pair.bodyA.label === 'goal' || pair.bodyB.label === 'goal') {
-      won = true;
-      const ms = performance.now() - startTime;
-      winTimeEl.textContent = (ms / 1000).toFixed(1) + ' s';
-      winOverlay.classList.remove('hidden');
-      if (peer) sendMsg(peer, { kind: 'win', time: ms });
-      break;
-    }
+function readInput(): { x: number; v: number } {
+  let kx = 0;
+  keys.forEach((k) => {
+    kx += KEY_X[k] ?? 0;
+  });
+  const crank =
+    keys.has('w') || keys.has('arrowup')
+      ? MAX_CRANK_RAD_S
+      : keys.has('s') || keys.has('arrowdown')
+        ? -MAX_CRANK_RAD_S * 0.6
+        : 0;
+  return { x: kx !== 0 ? clamp(kx, -1, 1) : phone.x, v: crank !== 0 ? crank : phone.v };
+}
+
+function sendHaptic(ms: number | number[]): void {
+  if (peer) sendMsg(peer, { kind: 'haptic', ms });
+}
+
+// ---- State machine -----------------------------------------------------------
+function startCast(): void {
+  const far = (clamp(S.aim, -1, 1) + 1) / 2; // 0 = near shore, 1 = far out
+  const tx = 680 - 550 * far;
+  const ty = WATER_Y + 24 + 120 * (1 - far);
+  S.cast = { fx: S.bobber.x, fy: S.bobber.y, tx, ty, t: 0 };
+  S.state = 'casting';
+  S.stateT = 0;
+}
+
+function doCatch(): void {
+  const f = S.fish as ActiveFish;
+  S.points += f.def.points;
+  S.catchCount += 1;
+  S.lastName = f.def.name;
+  S.fish = null;
+  S.state = 'caught';
+  S.stateT = 0;
+  sendHaptic([60, 90, 60]);
+  resultImg.src = f.def.img;
+  resultName.textContent = f.def.kind === 'junk' ? `Junk: ${f.def.name}` : f.def.name;
+  resultDetail.textContent =
+    f.def.kind === 'junk'
+      ? `${f.size} ${f.def.sizeUnit} · 0 pts — keep the water clean`
+      : `${f.size} ${f.def.sizeUnit} · ${f.def.points} pts`;
+  resultOverlay.classList.remove('hidden');
+}
+
+function doLose(text: string): void {
+  flash(text);
+  S.fish = null;
+  S.state = 'lost';
+  S.stateT = 0;
+  sendHaptic(300);
+}
+
+function handleTap(): void {
+  if (S.state === 'idle') {
+    startCast();
+  } else if (S.state === 'bite') {
+    S.state = 'fight';
+    S.stateT = 0;
+    S.tension = 0.3;
+    S.progress = 0.15;
+    S.bursting = false;
+    S.burstT = 0.7;
+    addRipple(S.bobber.x, S.bobber.y, 34);
+  } else if (S.state === 'lost' || S.state === 'caught') {
+    resultOverlay.classList.add('hidden');
+    S.state = 'idle';
+    S.stateT = 0;
   }
+}
+
+againBtn.addEventListener('click', handleTap);
+canvas.addEventListener('click', () => {
+  if (S.state !== 'caught') handleTap();
 });
 
-function resetBall(): void {
-  Body.setPosition(ball, { x: START.x, y: START.y });
-  Body.setVelocity(ball, { x: 0, y: 0 });
-  Body.setAngularVelocity(ball, 0);
-  won = false;
-  startTime = performance.now();
-  winOverlay.classList.add('hidden');
-}
+// ---- Update --------------------------------------------------------------------
+function update(dt: number): void {
+  S.t += dt;
+  S.stateT += dt;
+  if (S.flash) {
+    S.flashT += dt / 1.8;
+    if (S.flashT >= 1) S.flash = null;
+  }
+  for (const r of S.ripples) r.r += 55 * dt;
+  S.ripples = S.ripples.filter((r) => r.r < r.max);
 
-againBtn.addEventListener('click', resetBall);
-
-// ---- Render + update loop --------------------------------------------------
-function draw(): void {
-  ctx.fillStyle = '#0b1220';
-  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-  const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 300);
-  ctx.beginPath();
-  ctx.arc(GOAL.x, GOAL.y, GOAL_R, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(34,197,94,' + (0.45 + 0.55 * pulse).toFixed(3) + ')';
-  ctx.fill();
-
-  ctx.fillStyle = '#334155';
-  for (const w of walls) {
-    ctx.fillRect(
-      w.bounds.min.x,
-      w.bounds.min.y,
-      w.bounds.max.x - w.bounds.min.x,
-      w.bounds.max.y - w.bounds.min.y
-    );
+  for (const a of S.ambient) {
+    a.x += a.dir * a.speed * dt;
+    if (a.x < -60) a.x = W + 50;
+    if (a.x > W + 60) a.x = -50;
+    a.y = a.baseY + Math.sin(S.t * 0.8 + a.phase) * 6;
   }
 
-  ctx.beginPath();
-  ctx.arc(ball.position.x, ball.position.y, BALL_R, 0, Math.PI * 2);
-  ctx.fillStyle = won ? '#22c55e' : '#f59e0b';
-  ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = '#0b1220';
-  ctx.stroke();
+  const input = readInput();
+  S.aim += (input.x - S.aim) * (1 - Math.exp(-dt * 6));
+  S.rodAngle += (rodAngleFor(S.aim) - S.rodAngle) * (1 - Math.exp(-dt * 7));
+
+  switch (S.state) {
+    case 'idle': {
+      const tip = rodTip(S.rodAngle);
+      S.bobber.x = tip.x;
+      S.bobber.y = tip.y + 66 + Math.sin(S.t * 1.8) * 4;
+      S.lineSlack = 0.55;
+      S.bobberDip = 0;
+      break;
+    }
+    case 'casting': {
+      const c = S.cast as { fx: number; fy: number; tx: number; ty: number; t: number };
+      c.t += dt / CAST_TIME;
+      const t = Math.min(1, c.t);
+      const cx = (c.fx + c.tx) / 2;
+      const cy = (c.fy + c.ty) / 2 - 170;
+      const u = 1 - t;
+      S.bobber.x = u * u * c.fx + 2 * u * t * cx + t * t * c.tx;
+      S.bobber.y = u * u * c.fy + 2 * u * t * cy + t * t * c.ty;
+      S.lineSlack = 0.2;
+      S.bobberDip = 0;
+      if (t >= 1) {
+        S.bobber = { x: c.tx, y: c.ty };
+        S.bobberBase = { x: c.tx, y: c.ty };
+        addRipple(c.tx, c.ty, 46);
+        S.state = 'waiting';
+        S.stateT = 0;
+        scheduleBite();
+      }
+      break;
+    }
+    case 'waiting': {
+      S.biteT -= dt;
+      S.bobber.x = S.bobberBase.x;
+      S.bobber.y = S.bobberBase.y + Math.sin(S.t * 2.3) * 3;
+      S.lineSlack = 0.5;
+      S.bobberDip = 0;
+      const f = S.fish;
+      if (f && S.biteT < 2.2) {
+        const dx = S.bobber.x - 10 - f.x;
+        const dy = S.bobber.y + 46 - f.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const step = 75 * dt;
+        if (d > step) {
+          f.x += (dx / d) * step;
+          f.y += (dy / d) * step;
+        } else {
+          f.x = S.bobber.x - 10;
+          f.y = S.bobber.y + 46;
+        }
+        f.dir = dx >= 0 ? 1 : -1;
+      }
+      if (S.biteT <= 0) {
+        S.state = 'bite';
+        S.stateT = 0;
+        addRipple(S.bobber.x, S.bobber.y, 30);
+        sendHaptic(90);
+      }
+      break;
+    }
+    case 'bite': {
+      const k = Math.min(1, S.stateT / BITE_WINDOW);
+      S.bobberDip = Math.sin(Math.PI * k);
+      const f = S.fish;
+      if (f) {
+        f.x += (S.bobber.x - 12 - f.x) * Math.min(1, dt * 5);
+        f.y += (S.bobber.y + 40 - f.y) * Math.min(1, dt * 5);
+        f.dir = -1;
+      }
+      if (S.stateT >= BITE_WINDOW) {
+        flash('It got away…');
+        S.fish = null;
+        S.state = 'waiting';
+        S.stateT = 0;
+        scheduleBite();
+      }
+      break;
+    }
+    case 'fight': {
+      const f = S.fish as ActiveFish;
+      S.burstT -= dt;
+      if (S.burstT <= 0) {
+        S.bursting = !S.bursting;
+        S.burstT = S.bursting ? 1.1 + Math.random() * 1.5 : 0.6 + Math.random() * 1.2;
+        if (S.bursting) {
+          addRipple(S.bobber.x, S.bobber.y, 26);
+          sendHaptic(70);
+        }
+      }
+      const p = S.bursting
+        ? f.def.strength * (0.72 + 0.28 * Math.sin(S.stateT * 9 + f.phase))
+        : f.def.strength * 0.12;
+      const { v } = readInput();
+      const r = clamp(v / MAX_CRANK_RAD_S, 0, 1);
+      const lo = clamp(-v / MAX_CRANK_RAD_S, 0, 0.7);
+      S.tension = clamp(S.tension + dt * (r * (0.55 + 1.35 * p) - 0.85 - 0.9 * lo), 0, 1);
+      S.progress = clamp(
+        S.progress + dt * (0.2 * r - 0.24 * p * (1 - 0.7 * r) - 0.13 * lo),
+        0,
+        1
+      );
+      S.bobber.x = S.bobberBase.x - (S.bursting ? p * 22 : 0);
+      S.bobber.y =
+        WATER_Y + 8 + (S.bursting ? 10 + 5 * Math.sin(S.stateT * 13) : 3 * Math.sin(S.stateT * 2.6));
+      S.bobberDip = S.bursting ? 0.45 + 0.5 * p : 0.12;
+      S.lineSlack = 0.04;
+      f.x = S.bobber.x - 44 - p * 24;
+      f.y = S.bobber.y + 50 + Math.sin(S.stateT * 7 + f.phase) * 8 * (0.25 + p);
+      f.dir = -1;
+      if (S.progress >= 1) {
+        doCatch();
+      } else if (S.tension >= 1) {
+        doLose('LINE SNAPPED!');
+      } else if (S.progress <= 0) {
+        doLose('It got away…');
+      }
+      break;
+    }
+    case 'lost': {
+      if (S.stateT >= 1.7) {
+        S.state = 'idle';
+        S.stateT = 0;
+      }
+      break;
+    }
+    case 'caught':
+      break;
+  }
+}
+
+// ---- Render ---------------------------------------------------------------------
+function sceneView(): Scene {
+  const f = S.fish;
+  const fishView: FishView | null = f
+    ? {
+        img: f.def.img,
+        x: f.x,
+        y: f.y,
+        size: f.def.kind === 'junk' ? 44 : 58 + (f.size / f.def.sizeMax) * 42,
+        dir: f.dir,
+        alpha: 0.92,
+        rot: Math.sin(S.t * 6 + f.phase) * 0.18 * (S.state === 'fight' ? 1.7 : 1),
+      }
+    : null;
+  const ambient: FishView[] = S.ambient.map((a) => ({
+    img: a.img,
+    x: a.x,
+    y: a.y,
+    size: a.size,
+    dir: a.dir,
+    alpha: 0.5,
+    rot: Math.sin(S.t + a.phase) * 0.07,
+  }));
+  return {
+    t: S.t,
+    state: S.state,
+    rodAngle: S.rodAngle,
+    bobber: { ...S.bobber },
+    bobberDip: S.bobberDip,
+    lineSlack: S.lineSlack,
+    fish: fishView,
+    ambient,
+    ripples: S.ripples,
+    tension: S.tension,
+    progress: S.progress,
+    points: S.points,
+    catchCount: S.catchCount,
+    lastName: S.lastName,
+    flash: S.flash,
+    flashT: S.flash ? Math.min(1, S.flashT) : 0,
+  };
 }
 
 let last = performance.now();
 function loop(now: number): void {
-  const dt = Math.min(32, now - last);
+  const dt = Math.min(0.033, (now - last) / 1000);
   last = now;
-  if (!won) {
-    const kb = keyboardTilt();
-    if (kb) latest = kb;
-    engine.gravity.x = latest.x * (INVERT_X ? -1 : 1) * GRAVITY_SCALE;
-    engine.gravity.y = latest.y * (INVERT_Y ? -1 : 1) * GRAVITY_SCALE;
-    Engine.update(engine, dt);
-  }
-  draw();
+  update(dt);
+  draw(ctx, sceneView());
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// ---- WebRTC (initiator: computer) -----------------------------------------
+// ---- WebRTC (initiator: computer) --------------------------------------------------
 function setStatus(text: string): void {
   statusEl.textContent = text;
 }
@@ -222,39 +484,39 @@ function startSession(): void {
     onSignal: (sig) => {
       const s = sig as { type?: string; sdp?: string };
       if (s?.type === 'offer' && s.sdp) {
-        // Ship the full signal object as JSON; the phone JSON.parses it and
-        // hands the {type, sdp} object to simple-peer's signal().
-        void postSignal(room, 'offer', JSON.stringify({ type: s.type, sdp: trimSdp(s.sdp) })).then(() => {
-          if (statusEl.textContent.startsWith('Preparing')) {
-            setStatus('Waiting for the phone to scan…');
+        void postSignal(room, 'offer', JSON.stringify({ type: s.type, sdp: trimSdp(s.sdp) })).then(
+          () => {
+            if (statusEl.textContent.startsWith('Preparing')) {
+              setStatus('Waiting for the phone to scan…');
+            }
           }
-        });
+        );
       }
     },
     onOpen: () => {
       pollAbort?.abort();
-      setStatus('Controller connected. Tilt to steer!');
+      setStatus('Controller connected. Tilt to aim, twist to crank!');
       pairPanel.classList.add('hidden');
       sendMsg(p, { kind: 'hello' });
-      resetBall();
+      resultOverlay.classList.add('hidden');
+      S.fish = null;
+      S.state = 'idle';
+      S.stateT = 0;
     },
     onData: (m: Msg) => {
-      if (m.kind === 'tilt') {
-        latest = { x: m.x, y: m.y };
-        tiltMsgCount++;
-        tiltDebug.textContent =
-          tiltMsgCount + ' msgs  x=' + m.x.toFixed(2) + ' y=' + m.y.toFixed(2);
+      if (m.kind === 'ctrl') {
+        phone.x = m.x;
+        phone.y = m.y;
+        phone.v = m.v;
+        phone.frames += 1;
+        debugEl.textContent =
+          phone.frames + ' frames  x=' + m.x.toFixed(2) + ' y=' + m.y.toFixed(2) +
+          ' crank=' + m.v.toFixed(1);
+      } else if (m.kind === 'tap') {
+        handleTap();
       } else {
-        tiltDebug.textContent = 'got: ' + m.kind;
+        debugEl.textContent = 'got: ' + m.kind;
       }
-    },
-    onRawData: (raw: unknown) => {
-      const t =
-        raw && (raw as object).constructor
-          ? (raw as object).constructor.name
-          : typeof raw;
-      tiltDebug.textContent =
-        'raw ' + t + (typeof raw === 'string' ? ': ' + raw.slice(0, 40) : '');
     },
     onClose: () => {
       pairPanel.classList.remove('hidden');
@@ -298,6 +560,9 @@ copyUrlBtn.addEventListener('click', async () => {
     setStatus('Copy failed. Select the URL and copy manually.');
   }
 });
+
+spawnAmbient();
+debugEl.textContent = 'A/D aim · W crank · S let out · Space cast — or pair the phone';
 
 // Auto-start: the QR appears as soon as the page loads.
 startSession();

@@ -20,7 +20,7 @@ body {
 }
 
 #app {
-  max-width: 940px;
+  max-width: 1000px;
   margin: 0 auto;
   padding: 20px 16px 40px;
 }
@@ -77,6 +77,20 @@ button:active {
   color: #04121f;
   border: none;
   font-weight: 700;
+}
+
+.ghost {
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+#resultImg {
+  width: 150px;
+  height: 150px;
+  object-fit: contain;
+  margin: 0 auto 10px;
+  display: block;
 }
 
 .panel {
