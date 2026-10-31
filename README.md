@@ -12,10 +12,15 @@ Hold the phone like a fishing rod:
 
 - **Lean left/right** (tilt) → the rod on screen sweeps (aim far or near for
   the cast).
+- **Flick the phone** (throw motion) → cast with full power: the lure flies
+  farther, faster and higher. Flick again while the line is in the water to
+  re-throw it. Detected from the accelerometer — a quick spike in how fast
+  the acceleration magnitude changes (`src/shared/throw.ts`, threshold
+  `THROW_ENERGY_THRESHOLD`).
 - **Spin the wheel with your finger** (rotary touch gesture on the phone) →
   crank the reel in; every 30° fires a ratchet **haptic tick** (plus a click
   sound, since iPhones can't vibrate from the web).
-- **Tap the wheel** → cast, strike the bite, or continue.
+- **Tap the wheel** → strike the bite, or continue after a catch.
 
 While a fish is hooked, the phone also **buzzes back at you**: a tap when it
 takes the line, a pattern when you land it, a long one when the line snaps.
@@ -26,8 +31,9 @@ takes the line, a pattern when you land it, a long one when the line snaps.
   (lean left/right) is normalized to `-1..1` and centered on your actual grip.
   Cranking is a **rotary touch gesture** on the on-screen wheel — the finger's
   angle around the wheel center is tracked and its rate of change becomes the
-  crank speed `v`. Frames go out at ~30 Hz over a WebRTC data channel as
-  `{ x, y, v }`.
+   crank speed `v`. Frames go out at ~30 Hz over a WebRTC data channel as
+   `{ x, y, v }`. A **throw flick** is detected from `DeviceMotion`
+   (accelerometer) and sent as a separate `{ kind: 'throw' }` message.
 - **Game page** (computer): a canvas fishing scene. Tilt steers the rod, and
   the fight is a tension-vs-progress minigame: crank during the fish's rest
   phases, ease off during its pulls, or the line snaps. Catch fish (trout,
@@ -43,7 +49,8 @@ takes the line, a pattern when you land it, a long one when the line snaps.
 |------------|--------|
 | Build      | Vite + TypeScript (multi-page) |
 | Hosting    | Vercel (free HTTPS static + serverless function) |
-| Sensor     | `DeviceOrientation` (beta/gamma tilt), iOS permission on tap |
+| Sensor     | `DeviceOrientation` (beta/gamma tilt) + `DeviceMotion` (throw flick), iOS permission on tap |
+| Cast       | Throw flick of the phone (accelerometer spike) or tap the wheel |
 | Crank      | Rotary touch gesture on the wheel (finger angle around center) |
 | Feedback   | `navigator.vibrate` (Android) + WebAudio ratchet click (everywhere) |
 | Transport  | WebRTC via `simple-peer` (`trickle: false`) — P2P, no server relay of gameplay |

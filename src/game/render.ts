@@ -303,11 +303,11 @@ function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
 
   const hint =
     s.state === 'idle'
-      ? 'Tap the phone (or Space) to cast'
+      ? 'Flick the phone to throw (or Space) to cast'
       : s.state === 'casting'
         ? '…'
         : s.state === 'waiting'
-          ? 'Waiting for a bite…'
+          ? 'Waiting for a bite… flick to recast'
           : s.state === 'bite'
             ? 'STRIKE! Tap now!'
             : s.state === 'fight'

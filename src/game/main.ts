@@ -79,7 +79,7 @@ const S = {
   bobberBase: { x: 0, y: 0 },
   bobberDip: 0,
   lineSlack: 0.55,
-  cast: null as null | { fx: number; fy: number; tx: number; ty: number; t: number },
+  cast: null as null | { fx: number; fy: number; tx: number; ty: number; t: number; dur: number; arc: number },
   biteT: 0,
   fish: null as ActiveFish | null,
   ambient: [] as AmbientFish[],
@@ -146,6 +146,7 @@ const KEY_X: Record<string, number> = { a: -1, arrowleft: -1, d: 1, arrowright: 
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === ' ' && !e.repeat) handleTap();
+  if (k === 't' && !e.repeat) handleThrow();
   if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown'].includes(k) || k === ' ') {
     keys.add(k);
     e.preventDefault();
@@ -172,11 +173,21 @@ function sendHaptic(ms: number | number[]): void {
 }
 
 // ---- State machine -----------------------------------------------------------
-function startCast(): void {
+// power = 1 is a normal tap cast; a phone throw casts farther, faster and
+// with a higher arc.
+function startCast(power = 1): void {
   const far = (clamp(S.aim, -1, 1) + 1) / 2; // 0 = near shore, 1 = far out
-  const tx = 680 - 550 * far;
+  const tx = clamp(680 - 550 * far * power, 30, W - 40);
   const ty = WATER_Y + 24 + 120 * (1 - far);
-  S.cast = { fx: S.bobber.x, fy: S.bobber.y, tx, ty, t: 0 };
+  S.cast = {
+    fx: S.bobber.x,
+    fy: S.bobber.y,
+    tx,
+    ty,
+    t: 0,
+    dur: CAST_TIME / Math.sqrt(power),
+    arc: 170 + (power - 1) * 220,
+  };
   S.state = 'casting';
   S.stateT = 0;
 }
@@ -205,6 +216,14 @@ function doLose(text: string): void {
   S.state = 'lost';
   S.stateT = 0;
   sendHaptic(300);
+}
+
+function handleThrow(): void {
+  // A physical throw of the phone casts with full power — and re-throws the
+  // line if it's already in the water.
+  if (S.state === 'idle' || S.state === 'waiting') {
+    startCast(1.3);
+  }
 }
 
 function handleTap(): void {
@@ -262,11 +281,11 @@ function update(dt: number): void {
       break;
     }
     case 'casting': {
-      const c = S.cast as { fx: number; fy: number; tx: number; ty: number; t: number };
-      c.t += dt / CAST_TIME;
+      const c = S.cast as { fx: number; fy: number; tx: number; ty: number; t: number; dur: number; arc: number };
+      c.t += dt / c.dur;
       const t = Math.min(1, c.t);
       const cx = (c.fx + c.tx) / 2;
-      const cy = (c.fy + c.ty) / 2 - 170;
+      const cy = (c.fy + c.ty) / 2 - c.arc;
       const u = 1 - t;
       S.bobber.x = u * u * c.fx + 2 * u * t * cx + t * t * c.tx;
       S.bobber.y = u * u * c.fy + 2 * u * t * cy + t * t * c.ty;
@@ -495,7 +514,7 @@ function startSession(): void {
     },
     onOpen: () => {
       pollAbort?.abort();
-      setStatus('Controller connected. Lean to aim, spin the wheel to crank!');
+      setStatus('Controller connected. Lean to aim, flick to throw, spin the wheel to crank!');
       pairPanel.classList.add('hidden');
       sendMsg(p, { kind: 'hello' });
       resultOverlay.classList.add('hidden');
@@ -514,6 +533,8 @@ function startSession(): void {
           ' crank=' + m.v.toFixed(1);
       } else if (m.kind === 'tap') {
         handleTap();
+      } else if (m.kind === 'throw') {
+        handleThrow();
       } else {
         debugEl.textContent = 'got: ' + m.kind;
       }
@@ -562,7 +583,7 @@ copyUrlBtn.addEventListener('click', async () => {
 });
 
 spawnAmbient();
-debugEl.textContent = 'A/D aim · W crank · S let out · Space cast — or pair the phone';
+  debugEl.textContent = 'A/D aim · W crank · S let out · T throw · Space tap — or pair the phone';
 
 // Auto-start: the QR appears as soon as the page loads.
 startSession();

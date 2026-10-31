@@ -2,6 +2,7 @@ import type { Instance as Peer } from 'simple-peer';
 import { createLink, sendMsg } from '../shared/link';
 import { postSignal, waitForSignal } from '../shared/signal';
 import { requestMotionPermission, startTilt } from '../shared/tilt';
+import { startThrowDetection } from '../shared/throw';
 import type { Msg } from '../shared/protocol';
 import reelBgUrl from '../assets/wheel-spinning-bg.png';
 import reelFgUrl from '../assets/wheel-spinning-fg.png';
@@ -200,6 +201,11 @@ startBtn.addEventListener('click', async () => {
     latest.y = s.y;
     if (connected && peer) sendMsg(peer, { kind: 'ctrl', x: s.x, y: s.y, v: latest.v });
     readout.textContent = `aim ${s.x.toFixed(2)}  crank ${latest.v.toFixed(1)} rad/s`;
+  });
+  startThrowDetection(() => {
+    buzz(40);
+    ratchetClick();
+    if (connected && peer) sendMsg(peer, { kind: 'throw' });
   });
   startBtn.disabled = true;
   startBtn.textContent = 'Motion enabled';

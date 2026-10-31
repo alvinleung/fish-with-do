@@ -6,10 +6,12 @@
 export type CtrlMsg = { kind: 'ctrl'; x: number; y: number; v: number };
 // Tap on the phone screen: cast / strike / continue.
 export type TapMsg = { kind: 'tap' };
+// A physical throw flick of the phone: cast with full power.
+export type ThrowMsg = { kind: 'throw' };
 // Game -> phone: vibrate for ms (or a pattern). No-op where unsupported.
 export type HapticMsg = { kind: 'haptic'; ms: number | number[] };
 export type HelloMsg = { kind: 'hello' };
-export type Msg = CtrlMsg | TapMsg | HapticMsg | HelloMsg;
+export type Msg = CtrlMsg | TapMsg | ThrowMsg | HapticMsg | HelloMsg;
 
 // How many degrees of phone tilt map to a full deflection (-1..1).
 export const MAX_TILT_DEG = 30;
