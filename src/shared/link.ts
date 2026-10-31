@@ -20,8 +20,20 @@ export type LinkOptions = {
 // phone is on cellular and the computer is on Wi‑Fi. It only helps ICE find the
 // path — it sees no game data, which stays peer‑to‑peer. Host candidates still
 // let same‑LAN / phone‑hotspot pairing connect instantly.
+//
+// TURN (coturn on our own VPS, see scripts/setup-turn.sh) is the fallback for
+// when a symmetric NAT blocks P2P entirely — common on cellular. No TLS, so no
+// domain/cert needed. The credential ships in the client bundle, so treat it as
+// public; the VPS-side limits in the setup script keep abuse bounded.
 const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    {
+      urls: ['turn:24.199.108.142:3478?transport=udp', 'turn:24.199.108.142:3478?transport=tcp'],
+      username: 'fish',
+      credential: 'PASTE-THE-PASSWORD-FROM-setup-turn.sh',
+    },
+  ],
 };
 
 // simple-peer emits its "signal" (offer/answer) from a snapshot of
