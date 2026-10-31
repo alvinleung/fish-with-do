@@ -31,8 +31,9 @@ export type TiltSample = {
 //  - {x, y}: tilt relative to the grip the phone is held in (centered on the
 //    first ~15 events, low-passed). This steers the rod.
 //  - twist: how fast the phone is rotating about its screen normal (alpha),
-//    i.e. the wrist motion of cranking a reel. The zero of alpha is arbitrary
-//    per device, so only its rate of change is used.
+//    low-passed. The zero of alpha is arbitrary per device, so only its rate
+//    of change is used. (Currently informational — cranking is a touch
+//    gesture on the reel, not a wrist twist.)
 export function startTilt(onTilt: (v: TiltSample) => void): () => void {
   let smooth = { x: 0, y: 0, twist: 0 };
   let last = 0;

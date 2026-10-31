@@ -10,10 +10,11 @@ the one-time pairing handshake**.
 
 Hold the phone like a fishing rod:
 
-- **Tilt** the phone → the rod on screen sweeps left/right (cast far or near).
-- **Twist your wrist** (rotate the phone about its screen) → the reel on the
-  phone spins; every 30° fires a ratchet **haptic tick** (plus a click sound,
-  since iPhones can't vibrate from the web).
+- **Lean left/right** (tilt) → the rod on screen sweeps (aim far or near for
+  the cast).
+- **Spin the wheel with your finger** (rotary touch gesture on the phone) →
+  crank the reel in; every 30° fires a ratchet **haptic tick** (plus a click
+  sound, since iPhones can't vibrate from the web).
 - **Tap the wheel** → cast, strike the bite, or continue.
 
 While a fish is hooked, the phone also **buzzes back at you**: a tap when it
@@ -21,10 +22,12 @@ takes the line, a pattern when you land it, a long one when the line snaps.
 
 ## How it works
 
-- **Controller page** (phone, Safari): reads `DeviceOrientation`. Tilt is
-  normalized to `-1..1` and centered on your actual grip; the wrist twist is
-  the rate of change of `alpha` (rotation about the screen normal). Frames go
-  out at ~30 Hz over a WebRTC data channel as `{ x, y, v }`.
+- **Controller page** (phone, Safari): reads `DeviceOrientation`. Tilt
+  (lean left/right) is normalized to `-1..1` and centered on your actual grip.
+  Cranking is a **rotary touch gesture** on the on-screen wheel — the finger's
+  angle around the wheel center is tracked and its rate of change becomes the
+  crank speed `v`. Frames go out at ~30 Hz over a WebRTC data channel as
+  `{ x, y, v }`.
 - **Game page** (computer): a canvas fishing scene. Tilt steers the rod, and
   the fight is a tension-vs-progress minigame: crank during the fish's rest
   phases, ease off during its pulls, or the line snaps. Catch fish (trout,
@@ -40,7 +43,8 @@ takes the line, a pattern when you land it, a long one when the line snaps.
 |------------|--------|
 | Build      | Vite + TypeScript (multi-page) |
 | Hosting    | Vercel (free HTTPS static + serverless function) |
-| Sensor     | `DeviceOrientation` (beta/gamma tilt + alpha twist), iOS permission on tap |
+| Sensor     | `DeviceOrientation` (beta/gamma tilt), iOS permission on tap |
+| Crank      | Rotary touch gesture on the wheel (finger angle around center) |
 | Feedback   | `navigator.vibrate` (Android) + WebAudio ratchet click (everywhere) |
 | Transport  | WebRTC via `simple-peer` (`trickle: false`) — P2P, no server relay of gameplay |
 | Pairing    | `qrcode` (room-code URL) + a `/api/signal` relay (Vercel function + KV) |
@@ -123,8 +127,8 @@ stale.
   **Enable motion** button, and the page must be **HTTPS**.
 - **iPhones cannot vibrate from a web page** (Safari has no Vibration API).
   The ratchet click sound covers that; Android phones get real haptics.
-- The wrist-twist (`alpha`) reference angle is device-dependent, so only its
-  rate of change is used — no calibration needed.
+- Spinning the wheel won't scroll the page: the wheel has `touch-action: none`,
+  so all touch motion on it is consumed by the crank gesture.
 - The connection is one-shot; if it drops, click **New code** and re-pair.
 - The relay only carries the one-time handshake SDP (a few KB) and drops it
   after ~5 minutes; it never sees any gameplay data.

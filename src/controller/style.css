@@ -53,10 +53,11 @@ h3 {
   width: min(62vmin, 290px);
   aspect-ratio: 1;
   margin: 14px auto 6px;
-  touch-action: manipulation;
+  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  overscroll-behavior: contain;
 }
 
 #reel img {

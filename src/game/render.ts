@@ -311,7 +311,7 @@ function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
           : s.state === 'bite'
             ? 'STRIKE! Tap now!'
             : s.state === 'fight'
-              ? 'CRANK! Twist your wrist — ease off when it pulls hard'
+              ? 'CRANK! Spin the wheel on your phone — ease off when it pulls hard'
               : '';
 
   if (hint) {

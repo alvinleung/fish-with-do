@@ -78,24 +78,53 @@ function ratchetClick(): void {
   src.start(t, Math.random() * 0.03, 0.05);
 }
 
-// ---- Reel display ---------------------------------------------------------------
-// The wheel's foreground spins with your wrist twist, exactly like cranking a
-// reel handle. Every 30° of rotation is one ratchet notch.
+// ---- Reel display + finger crank ------------------------------------------------
+// Cranking is a rotary touch gesture: hold the wheel and circle your finger —
+// the foreground follows the finger exactly. Every 30° of rotation is one
+// ratchet notch (haptic tick + click). A quick, still touch is a tap
+// (cast / strike / continue).
 const NOTCH = Math.PI / 6;
+const TAP_MAX_PX = 12;
+const TAP_MAX_MS = 300;
+
 const latest = { x: 0, y: 0, v: 0 };
 let crankAngle = 0;
 let prevNotch = 0;
 let lastNow = performance.now();
 
+let activePointer: number | null = null;
+let lastAngle: number | null = null;
+let lastMoveAt = 0;
+let downX = 0;
+let downY = 0;
+let downAt = 0;
+let movedPx = 0;
+let cranking = false;
+let fingerVel = 0;
+
+function pointerAngle(e: PointerEvent): number {
+  const rect = reelEl.getBoundingClientRect();
+  return Math.atan2(
+    e.clientY - (rect.top + rect.height / 2),
+    e.clientX - (rect.left + rect.width / 2)
+  );
+}
+
 function reelLoop(now: number): void {
   const dt = Math.min(0.05, (now - lastNow) / 1000);
   lastNow = now;
-  crankAngle += latest.v * dt;
+  if (!cranking) {
+    // brief inertia after the finger lets go, then stop
+    fingerVel *= Math.exp(-dt * 10);
+    if (Math.abs(fingerVel) < 0.05) fingerVel = 0;
+    crankAngle += fingerVel * dt;
+  }
+  latest.v = fingerVel;
   reelFgEl.style.transform = `rotate(${((crankAngle * 180) / Math.PI) % 360}deg)`;
   const notch = Math.floor(crankAngle / NOTCH);
   if (notch !== prevNotch) {
     prevNotch = notch;
-    if (Math.abs(latest.v) > 0.3) {
+    if (Math.abs(fingerVel) > 0.3) {
       buzz(12);
       ratchetClick();
     }
@@ -104,15 +133,55 @@ function reelLoop(now: number): void {
 }
 requestAnimationFrame(reelLoop);
 
-// Tap the wheel = cast / strike / continue.
 reelEl.addEventListener('pointerdown', (e) => {
   e.preventDefault();
-  buzz(10);
-  if (connected && peer) sendMsg(peer, { kind: 'tap' });
-  reelEl.classList.remove('tapped');
-  void reelEl.offsetWidth;
-  reelEl.classList.add('tapped');
+  reelEl.setPointerCapture(e.pointerId);
+  activePointer = e.pointerId;
+  lastAngle = pointerAngle(e);
+  lastMoveAt = performance.now();
+  downX = e.clientX;
+  downY = e.clientY;
+  downAt = lastMoveAt;
+  movedPx = 0;
+  cranking = false;
+  fingerVel = 0;
 });
+
+reelEl.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== activePointer || lastAngle === null) return;
+  movedPx += Math.hypot(e.clientX - downX, e.clientY - downY);
+  const a = pointerAngle(e);
+  let d = a - lastAngle;
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  if (movedPx > TAP_MAX_PX) cranking = true;
+  if (cranking) {
+    const now = performance.now();
+    const dt = Math.max(0.008, (now - lastMoveAt) / 1000);
+    fingerVel = fingerVel * 0.5 + (d / dt) * 0.5;
+    crankAngle += d;
+  }
+  lastAngle = a;
+  lastMoveAt = performance.now();
+});
+
+function endPointer(e: PointerEvent): void {
+  if (e.pointerId !== activePointer) return;
+  const dur = performance.now() - downAt;
+  if (!cranking && dur < TAP_MAX_MS) {
+    buzz(10);
+    if (connected && peer) sendMsg(peer, { kind: 'tap' });
+    reelEl.classList.remove('tapped');
+    void reelEl.offsetWidth;
+    reelEl.classList.add('tapped');
+  }
+  activePointer = null;
+  lastAngle = null;
+  cranking = false;
+}
+
+reelEl.addEventListener('pointerup', endPointer);
+reelEl.addEventListener('pointercancel', endPointer);
 
 // ---- Motion -------------------------------------------------------------------
 // iOS needs an explicit user gesture to unlock the orientation sensor, so the
@@ -125,15 +194,16 @@ startBtn.addEventListener('click', async () => {
     return;
   }
   startTilt((s) => {
+    // Tilt only steers the rod (lean left/right); v (crank) comes from the
+    // finger rotary gesture on the wheel, updated in the rAF loop.
     latest.x = s.x;
     latest.y = s.y;
-    latest.v = (s.twist * Math.PI) / 180; // deg/s -> rad/s
     if (connected && peer) sendMsg(peer, { kind: 'ctrl', x: s.x, y: s.y, v: latest.v });
-    readout.textContent = `x ${s.x.toFixed(2)}  y ${s.y.toFixed(2)}  crank ${latest.v.toFixed(1)} rad/s`;
+    readout.textContent = `aim ${s.x.toFixed(2)}  crank ${latest.v.toFixed(1)} rad/s`;
   });
   startBtn.disabled = true;
   startBtn.textContent = 'Motion enabled';
-  setStatus('Ready — you are the reel.');
+  setStatus('Ready — lean to aim, spin the wheel to crank.');
 });
 
 // ---- WebRTC (responder: phone) ---------------------------------------------------
@@ -160,7 +230,7 @@ function applyRoom(roomCode: string): void {
     },
     onOpen: () => {
       connected = true;
-      setStatus('Connected. Tilt to aim, twist to crank!');
+      setStatus('Connected. Lean to aim, spin the wheel to crank!');
       pairHint.textContent = 'Linked with the game.';
     },
     onData: (m: Msg) => {

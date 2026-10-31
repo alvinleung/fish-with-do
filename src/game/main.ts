@@ -495,7 +495,7 @@ function startSession(): void {
     },
     onOpen: () => {
       pollAbort?.abort();
-      setStatus('Controller connected. Tilt to aim, twist to crank!');
+      setStatus('Controller connected. Lean to aim, spin the wheel to crank!');
       pairPanel.classList.add('hidden');
       sendMsg(p, { kind: 'hello' });
       resultOverlay.classList.add('hidden');
