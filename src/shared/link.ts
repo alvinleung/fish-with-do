@@ -31,7 +31,7 @@ const RTC_CONFIG: RTCConfiguration = {
     {
       urls: ['turn:24.199.108.142:3478?transport=udp', 'turn:24.199.108.142:3478?transport=tcp'],
       username: 'fish',
-      credential: 'PASTE-THE-PASSWORD-FROM-setup-turn.sh',
+      credential: '2a114253602118f921997376b3d5e4bb',
     },
   ],
 };
