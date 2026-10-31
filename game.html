@@ -6,37 +6,38 @@
     <title>Fish With Do (Computer)</title>
   </head>
   <body>
-    <div id="app">
+    <div id="stage">
+      <canvas id="game"></canvas>
+
       <header>
         <h1>Fish With Do</h1>
         <span id="status" class="status">Preparing pairing…</span>
         <span id="debug" class="tilt-debug"></span>
       </header>
 
-      <div id="pair" class="panel">
-        <h2>Pair your phone</h2>
-        <img id="pairQR" class="qr hidden" alt="Pairing QR — scan with your phone" />
-        <p id="roomCode" class="room-code"></p>
-        <p id="qrHint" class="hint">Generating the QR code…</p>
-        <div class="pair-row">
-          <details class="fallback">
-            <summary>QR won't scan? Open this URL on your phone</summary>
-            <input id="linkUrl" readonly />
-            <button id="copyUrlBtn">Copy URL</button>
-          </details>
-          <button id="newSessionBtn" class="ghost">New code</button>
+      <div id="pairWrap">
+        <div id="pair" class="panel">
+          <h2>Pair your phone</h2>
+          <img id="pairQR" class="qr hidden" alt="Pairing QR — scan with your phone" />
+          <p id="roomCode" class="room-code"></p>
+          <p id="qrHint" class="hint">Generating the QR code…</p>
+          <div class="pair-row">
+            <details class="fallback">
+              <summary>QR won't scan? Open this URL on your phone</summary>
+              <input id="linkUrl" readonly />
+              <button id="copyUrlBtn">Copy URL</button>
+            </details>
+            <button id="newSessionBtn" class="ghost">New code</button>
+          </div>
         </div>
       </div>
 
-      <div id="stage">
-        <canvas id="game"></canvas>
-        <div id="resultOverlay" class="overlay hidden">
-          <div class="overlay-card">
-            <img id="resultImg" alt="Catch" />
-            <h2 id="resultName"></h2>
-            <p id="resultDetail"></p>
-            <button id="againBtn" class="primary">Cast again</button>
-          </div>
+      <div id="resultOverlay" class="overlay hidden">
+        <div class="overlay-card">
+          <img id="resultImg" alt="Catch" />
+          <h2 id="resultName"></h2>
+          <p id="resultDetail"></p>
+          <button id="againBtn" class="primary">Cast again</button>
         </div>
       </div>
     </div>

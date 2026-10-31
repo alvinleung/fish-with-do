@@ -29,7 +29,7 @@ const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 const statusEl = $('status');
 const debugEl = $('debug');
 const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
-const pairPanel = $('pair');
+const pairPanel = $('pairWrap');
 const pairQR = $('pairQR') as HTMLImageElement;
 const roomCodeEl = $('roomCode');
 const qrHint = $('qrHint');
@@ -41,8 +41,16 @@ const resultName = $('resultName');
 const resultDetail = $('resultDetail');
 const againBtn = $('againBtn') as HTMLButtonElement;
 
-canvas.width = W;
-canvas.height = H;
+// The CSS scales the canvas edge-to-edge; render at device resolution so it
+// stays crisp. All drawing keeps using the 960x600 world units.
+function fitCanvas(): void {
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+fitCanvas();
+window.addEventListener('resize', fitCanvas);
 setRodUrl(rodImgUrl);
 
 // ---- Game state ------------------------------------------------------------

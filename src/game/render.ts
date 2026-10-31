@@ -322,7 +322,7 @@ function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
       : 'rgba(226,236,250,0.9)';
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
     ctx.shadowBlur = 6;
-    ctx.fillText(hint, 20, 38);
+    ctx.fillText(hint, 20, 66);
     ctx.shadowBlur = 0;
   }
 
@@ -332,7 +332,7 @@ function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
   const top = `Points ${s.points}   ·   Catches ${s.catchCount}` + (s.lastName ? `   ·   Last: ${s.lastName}` : '');
   ctx.shadowColor = 'rgba(0,0,0,0.5)';
   ctx.shadowBlur = 5;
-  ctx.fillText(top, W - 20, 34);
+  ctx.fillText(top, W - 20, 62);
   ctx.shadowBlur = 0;
   ctx.textAlign = 'left';
 
