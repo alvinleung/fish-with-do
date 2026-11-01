@@ -51,6 +51,14 @@ document.getElementById("go").onclick = async () => {
     if (Date.now() > deadline) finish();
   };
   pc.oniceconnectionstatechange = () => log("iceConnectionState: " + pc.iceConnectionState, "info");
+  pc.onicecandidateerror = (e) => {
+    const codes = {0:"unspecified",1:"unauthorized",2:"serverFailure",6:"other",
+      100:"noBinding(no response from server)",101:"badResponse",102:"allocatedButNotRelocated",
+      103:"reallocationFailure",104:"turnAuthFailure",105:"turnCapacity",
+      106:"turnUnsupportedTransport",107:"turnUnknownUsername",108:"turnStaleNonce",
+      110:"turnAlternateUnavailable"};
+    log(`ICE-ERR code=${e.errorCode} (${codes[e.errorCode]||"?"})  ${e.address}:${e.port}  url=${e.url}`, "bad");
+  };
 
   function finish() {
     if (finished) return; finished = true;
