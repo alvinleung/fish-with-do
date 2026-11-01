@@ -1,5 +1,5 @@
 import type { Instance as Peer } from 'simple-peer';
-import { createLink, sendMsg } from '../shared/link';
+import { createLink, sendMsg, fetchRtcConfig } from '../shared/link';
 import { postSignal, waitForSignal } from '../shared/signal';
 import { requestMotionPermission, startTilt } from '../shared/tilt';
 import { startThrowDetection } from '../shared/throw';
@@ -221,13 +221,15 @@ function trimSdp(sdp: string): string {
     .join('\n');
 }
 
-function applyRoom(roomCode: string): void {
+async function applyRoom(roomCode: string): Promise<void> {
   roomCodeEl.textContent = roomCode;
   setStatus('Waiting for the game…');
   pairHint.textContent = 'Listening for the game… it sends the offer automatically.';
 
+  const config = await fetchRtcConfig();
   peer = createLink({
     initiator: false,
+    config,
     onSignal: (sig) => {
       const s = sig as { type?: string; sdp?: string };
       if (s?.type === 'answer' && s.sdp) {
@@ -269,7 +271,7 @@ function applyRoom(roomCode: string): void {
 
 const roomParam = new URLSearchParams(location.search).get('room');
 if (roomParam) {
-  applyRoom(roomParam.toUpperCase());
+  void applyRoom(roomParam.toUpperCase());
 } else {
   pairHint.textContent = 'This page was opened without a room code.';
   setStatus('Scan the QR on the computer screen — it opens this page for you.');

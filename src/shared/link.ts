@@ -6,6 +6,8 @@ export type LinkOptions = {
   // true = this side generates the offer (computer/game).
   // false = this side answers (phone/controller).
   initiator: boolean;
+  // Live ICE servers (Twilio NTS + fallbacks). Omit to use the static fallback.
+  config?: RTCConfiguration;
   onSignal?: (signal: unknown) => void;
   onOpen?: () => void;
   onData?: (data: Msg) => void;
@@ -21,11 +23,14 @@ export type LinkOptions = {
 // path — it sees no game data, which stays peer‑to‑peer. Host candidates still
 // let same‑LAN / phone‑hotspot pairing connect instantly.
 //
-// TURN (coturn on our own VPS, see scripts/setup-turn.sh) is the fallback for
-// when a symmetric NAT blocks P2P entirely — common on cellular. No TLS, so no
-// domain/cert needed. The credential ships in the client bundle, so treat it as
-// public; the VPS-side limits in the setup script keep abuse bounded.
-const RTC_CONFIG: RTCConfiguration = {
+// TURN is the fallback for when a symmetric NAT blocks P2P entirely — common on
+// cellular. The primary TURN is Twilio NTS (fetched live from /api/nts, see
+// fetchRtcConfig) because it's anycast and reachable from carriers like T-Mobile
+// that block our own VPS. The VPS TURN below (scripts/setup-turn.sh) is the
+// static fallback used when /api/nts is unavailable (e.g. local dev). No TLS, so
+// no domain/cert needed. The credential ships in the client bundle, so treat it
+// as public; the VPS-side limits in the setup script keep abuse bounded.
+const FALLBACK_RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     {
@@ -40,6 +45,25 @@ const RTC_CONFIG: RTCConfiguration = {
     },
   ],
 };
+
+// Fetch live ICE servers from the /api/nts serverless function: Twilio NTS
+// (anycast STUN/TURN, primary) followed by the static fallbacks above. Twilio
+// comes first because it's reachable from cellular networks that block the VPS.
+// If /api/nts is unavailable (local dev, missing credentials, network error),
+// fall back to the static config so the link still works on friendly networks.
+export async function fetchRtcConfig(): Promise<RTCConfiguration> {
+  try {
+    const res = await fetch('/api/nts');
+    if (!res.ok) throw new Error('nts HTTP ' + res.status);
+    const data = (await res.json()) as { iceServers?: RTCIceServer[] };
+    if (Array.isArray(data.iceServers) && data.iceServers.length > 0) {
+      return { iceServers: [...data.iceServers, ...(FALLBACK_RTC_CONFIG.iceServers ?? [])] };
+    }
+    throw new Error('no iceServers in response');
+  } catch {
+    return FALLBACK_RTC_CONFIG;
+  }
+}
 
 // simple-peer emits its "signal" (offer/answer) from a snapshot of
 // localDescription that can be taken before ICE candidates are flushed in,
@@ -107,7 +131,7 @@ export function createLink(opts: LinkOptions): PeerInstance {
   const peer = new SimplePeer({
     initiator: opts.initiator,
     trickle: false,
-    config: RTC_CONFIG,
+    config: opts.config ?? FALLBACK_RTC_CONFIG,
   });
 
   peer.on('signal', (sig: unknown) => {

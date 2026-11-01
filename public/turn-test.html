@@ -15,16 +15,31 @@
 </head>
 <body>
   <h2>TURN relay test</h2>
-  <p>Click start. Wait ~15s. VPS TURN is now on <b>port 443</b> (a web port, to test if the carrier passes it). Any <b class="ok">relay</b> candidate is a win — note its address (VPS = 24.199.108.142).</p>
+  <p>Click start. Wait ~15s. ICE servers are fetched live from <code>/api/nts</code> (Twilio NTS anycast TURN + VPS fallback). Any <b class="ok">relay</b> candidate is a win — a Twilio relay address will <em>not</em> be 24.199.108.142.</p>
   <button id="go">Start test</button>
   <div id="log">idle</div>
 <script>
-const ICE = [
+// Fallback ICE servers (used only if /api/nts is unavailable, e.g. local dev).
+const FALLBACK_ICE = [
   { urls: "stun:stun.l.google.com:19302" },
-  { urls: ["turn:24.199.108.142:443?transport=udp","turn:24.199.108.142:443?transport=tcp",
-            "turn:[2604:a880:4:1d0:0:3:d1ce:b000]:443?transport=udp","turn:[2604:a880:4:1d0:0:3:d1ce:b000]:443?transport=tcp"],
-     username: "fish", credential: "2a114253602118f921997376b3d5e4bb" },
+  { urls: ["turn:24.199.108.142:3478?transport=udp","turn:24.199.108.142:3478?transport=tcp",
+            "turn:[2604:a880:4:1d0:0:3:d1ce:b000]:3478?transport=udp","turn:[2604:a880:4:1d0:0:3:d1ce:b000]:3478?transport=tcp"],
+    username: "fish", credential: "2a114253602118f921997376b3d5e4bb" },
 ];
+// Live ICE servers: Twilio NTS (anycast STUN/TURN) first, then the fallbacks.
+async function getIceServers() {
+  try {
+    const res = await fetch("/api/nts");
+    if (!res.ok) throw new Error("nts HTTP " + res.status);
+    const data = await res.json();
+    if (Array.isArray(data.iceServers) && data.iceServers.length) {
+      return { servers: [...data.iceServers, ...FALLBACK_ICE], source: "Twilio NTS + fallback" };
+    }
+    throw new Error("no iceServers");
+  } catch (e) {
+    return { servers: FALLBACK_ICE, source: "fallback (" + e + ")" };
+  }
+}
 const logEl = document.getElementById("log");
 function log(msg, cls) {
   const line = document.createElement("div");
@@ -34,8 +49,11 @@ function log(msg, cls) {
 }
 document.getElementById("go").onclick = async () => {
   logEl.innerHTML = "";
+  log("fetching ICE servers from /api/nts…", "info");
+  const { servers, source } = await getIceServers();
+  log("using: " + source + " (" + servers.length + " servers)", "info");
   log("creating RTCPeerConnection…", "info");
-  const pc = new RTCPeerConnection({ iceServers: ICE, iceCandidatePoolSize: 0 });
+  const pc = new RTCPeerConnection({ iceServers: servers, iceCandidatePoolSize: 0 });
   const kinds = ["audio", "video"];
   for (const k of kinds) pc.addTransceiver(k, { direction: "recvonly" });
 

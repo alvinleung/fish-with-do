@@ -1,6 +1,6 @@
 import { toDataURL } from 'qrcode';
 import type { Instance as Peer } from 'simple-peer';
-import { createLink, sendMsg } from '../shared/link';
+import { createLink, sendMsg, fetchRtcConfig } from '../shared/link';
 import { postSignal, waitForSignal } from '../shared/signal';
 import type { Msg } from '../shared/protocol';
 import { MAX_CRANK_RAD_S, clamp } from '../shared/protocol';
@@ -493,7 +493,7 @@ function makeRoom(): string {
 let room = '';
 let pollAbort: AbortController | null = null;
 
-function startSession(): void {
+async function startSession(): Promise<void> {
   peer?.destroy();
   peer = null;
   pollAbort?.abort();
@@ -506,8 +506,10 @@ function startSession(): void {
   qrHint.textContent = 'Generating the QR code…';
   setStatus('Preparing pairing…');
 
+  const config = await fetchRtcConfig();
   const p = createLink({
     initiator: true,
+    config,
     onSignal: (sig) => {
       const s = sig as { type?: string; sdp?: string };
       if (s?.type === 'offer' && s.sdp) {
@@ -578,7 +580,9 @@ function startSession(): void {
     });
 }
 
-newSessionBtn.addEventListener('click', startSession);
+newSessionBtn.addEventListener('click', () => {
+  void startSession();
+});
 
 copyUrlBtn.addEventListener('click', async () => {
   try {
@@ -594,4 +598,4 @@ spawnAmbient();
   debugEl.textContent = 'A/D aim · W crank · S let out · T throw · Space tap — or pair the phone';
 
 // Auto-start: the QR appears as soon as the page loads.
-startSession();
+void startSession();
