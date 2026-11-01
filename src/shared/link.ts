@@ -29,7 +29,12 @@ const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     {
-      urls: ['turn:24.199.108.142:3478?transport=udp', 'turn:24.199.108.142:3478?transport=tcp'],
+      urls: [
+        'turn:24.199.108.142:3478?transport=udp',
+        'turn:24.199.108.142:3478?transport=tcp',
+        'turn:[2604:a880:4:1d0:0:3:d1ce:b000]:3478?transport=udp',
+        'turn:[2604:a880:4:1d0:0:3:d1ce:b000]:3478?transport=tcp',
+      ],
       username: 'fish',
       credential: '2a114253602118f921997376b3d5e4bb',
     },
