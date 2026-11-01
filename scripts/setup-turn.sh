@@ -33,6 +33,7 @@ relay-ip=${IP}
 use-ip=${IP}
 min-port=49152
 max-port=65535
+realm=fish-with-do
 user=${TURN_USER}:${TURN_PASS}
 no-cli
 no-tls

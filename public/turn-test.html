@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TURN test</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; background:#0b1220; color:#e5e7eb; }
+  h2 { margin-top:0; }
+  #log { white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:13px; background:#0f172a;
+         border:1px solid #1e293b; border-radius:8px; padding:12px; min-height:200px; }
+  .ok { color:#4ade80; } .bad { color:#f87171; } .info { color:#93c5fd; }
+  button { padding:10px 16px; font-size:15px; border-radius:8px; border:0; background:#2563eb; color:#fff; margin-bottom:12px; }
+</style>
+</head>
+<body>
+  <h2>TURN relay test</h2>
+  <p>Click start. Wait ~15s. Look for a <b class="ok">relay</b> candidate with address <b>24.199.108.142</b>.</p>
+  <button id="go">Start test</button>
+  <div id="log">idle</div>
+<script>
+const ICE = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: ["turn:24.199.108.142:3478?transport=udp","turn:24.199.108.142:3478?transport=tcp"],
+    username: "fish", credential: "2a114253602118f921997376b3d5e4bb" },
+];
+const logEl = document.getElementById("log");
+function log(msg, cls) {
+  const line = document.createElement("div");
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  logEl.appendChild(line);
+}
+document.getElementById("go").onclick = async () => {
+  logEl.innerHTML = "";
+  log("creating RTCPeerConnection…", "info");
+  const pc = new RTCPeerConnection({ iceServers: ICE, iceCandidatePoolSize: 0 });
+  const kinds = ["audio", "video"];
+  for (const k of kinds) pc.addTransceiver(k, { direction: "recvonly" });
+
+  const seen = { host:0, srflx:0, relay:0 };
+  const deadline = Date.now() + 15000;
+  let finished = false;
+
+  pc.onicecandidate = (e) => {
+    if (!e.candidate) { log("ICE gathering complete.", "info"); return finish(); }
+    const c = e.candidate;
+    seen[c.type] = (seen[c.type]||0) + 1;
+    const cls = c.type === "relay" ? "ok" : (c.type === "srflx" ? "info" : "");
+    log(`candidate ${c.type.padEnd(6)} ${c.address}:${c.port}  (t=${c.transport})`, cls);
+    if (Date.now() > deadline) finish();
+  };
+  pc.oniceconnectionstatechange = () => log("iceConnectionState: " + pc.iceConnectionState, "info");
+
+  function finish() {
+    if (finished) return; finished = true;
+    pc.close();
+    log("---- summary ----", "info");
+    log(`host: ${seen.host||0}   srflx: ${seen.srflx||0}   relay: ${seen.relay||0}`);
+    if (seen.relay > 0) log("RESULT: TURN allocation SUCCEEDED — a relay candidate was created.", "ok");
+    else log("RESULT: NO relay candidate — TURN allocation FAILED (auth or server).", "bad");
+  }
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    log("local description set; gathering candidates…", "info");
+    setTimeout(finish, 15000); // hard stop
+  } catch (err) {
+    log("ERROR: " + err, "bad");
+  }
+};
+</script>
+</body>
+</html>
