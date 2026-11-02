@@ -33,6 +33,18 @@ export interface Ripple {
   max: number;
 }
 
+export interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  t: number; // age (s)
+  ttl: number; // lifetime (s)
+  size: number;
+  color: string;
+  kind: 'splash' | 'sparkle';
+}
+
 export interface Scene {
   t: number;
   state: GameState;
@@ -43,6 +55,9 @@ export interface Scene {
   fish: FishView | null;
   ambient: FishView[];
   ripples: Ripple[];
+  particles: Particle[];
+  shake: number; // 0..1 camera-shake intensity (cranking + bursts)
+  rodShake: number; // 0..1 rod-tug intensity (the fish pulling while idle)
   tension: number;
   progress: number;
   points: number;
@@ -72,15 +87,28 @@ export function setRodUrl(url: string): void {
 }
 
 export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
+  // Camera shake: a small, jittery translate during the fight (cranking and
+  // bursts rattle the view). The HUD is drawn afterwards, outside the shake.
+  let sx = 0;
+  let sy = 0;
+  if (s.shake > 0) {
+    sx = (Math.sin(s.t * 47) * 0.6 + Math.sin(s.t * 31 + 0.5) * 0.4) * s.shake * 6;
+    sy = (Math.sin(s.t * 41 + 1.3) * 0.6 + Math.sin(s.t * 27 + 0.7) * 0.4) * s.shake * 5;
+  }
+  ctx.save();
+  ctx.translate(sx, sy);
   drawSky(ctx, s.t);
   drawWater(ctx, s.t);
   drawRipples(ctx, s.ripples);
   for (const f of s.ambient) drawFish(ctx, f);
-  if (s.fish) drawFish(ctx, s.fish);
+  // The hooked prey stays hidden — you won't know what you caught until the
+  // result reveal. Only background (ambient) fish are shown.
+  drawParticles(ctx, s.particles);
   const tip = rodTip(s.rodAngle);
   drawLine(ctx, tip, s.bobber, s.lineSlack);
-  drawRod(ctx, s.rodAngle);
+  drawRod(ctx, s.rodAngle, s.t, s.rodShake);
   drawBobber(ctx, s.bobber, s.bobberDip, s.t, s.state);
+  ctx.restore();
   drawHud(ctx, s);
 }
 
@@ -183,14 +211,18 @@ function drawLine(
   ctx.stroke();
 }
 
-function drawRod(ctx: CanvasRenderingContext2D, angle: number): void {
+function drawRod(ctx: CanvasRenderingContext2D, angle: number, t: number, rodShake = 0): void {
   const img = getImg(rodUrl);
   if (!img) return;
   const h = ROD_LEN;
   const w = (h * img.naturalWidth) / img.naturalHeight;
+  // The fish tugs the rod tip while you're not reeling: a fast, small rotation
+  // (about the grip) that scales with rodShake (0 = still, 1 = fighting hard).
+  const wiggle =
+    rodShake > 0 ? (Math.sin(t * 33) * 0.6 + Math.sin(t * 19 + 0.9) * 0.4) * rodShake * 0.055 : 0;
   ctx.save();
   ctx.translate(PIVOT.x, PIVOT.y);
-  ctx.rotate(angle + Math.PI / 2);
+  ctx.rotate(angle + Math.PI / 2 + wiggle);
   if (ROD_FH) ctx.scale(-1, 1);
   if (!ROD_TIP_UP) ctx.scale(1, -1);
   ctx.drawImage(img, -w / 2, ROD_TIP_UP ? -h : 0, w, h);
@@ -218,6 +250,18 @@ function drawFish(ctx: CanvasRenderingContext2D, f: FishView): void {
   ctx.globalAlpha = f.alpha;
   ctx.drawImage(img, -f.size / 2, -f.size / 2, f.size, f.size);
   ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
+function drawParticles(ctx: CanvasRenderingContext2D, parts: Particle[]): void {
+  for (const p of parts) {
+    const a = Math.max(0, 1 - p.t / p.ttl);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.globalAlpha = 1;
 }
 

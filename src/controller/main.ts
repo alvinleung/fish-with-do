@@ -11,11 +11,11 @@ import './style.css';
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
   document.getElementById(id) as T;
 
+const permBtn = $('permBtn') as HTMLButtonElement;
+const permNote = $('permNote');
+const perm = $('perm');
+const wheelView = $('wheelView');
 const statusEl = $('status');
-const startBtn = $('startBtn') as HTMLButtonElement;
-const pairHint = $('pairHint');
-const roomCodeEl = $('roomCode');
-const readout = $('tiltReadout');
 const reelEl = $('reel') as HTMLElement;
 const reelBgEl = $('reelBg') as HTMLImageElement;
 const reelFgEl = $('reelFg') as HTMLImageElement;
@@ -24,11 +24,12 @@ reelBgEl.src = reelBgUrl;
 reelFgEl.src = reelFgUrl;
 
 let peer: Peer | null = null;
+// Two separate gates: motion must be granted (the user settled the permission)
+// AND the WebRTC link must be open. Until both, the phone is "not connected"
+// and sends no input to the game.
+let motionGranted = false;
 let connected = false;
-
-function setStatus(text: string): void {
-  statusEl.textContent = text;
-}
+const roomCode = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
 
 // ---- Haptics + ratchet sound --------------------------------------------------
 // iPhones cannot vibrate from the web (Safari has no Vibration API), so every
@@ -171,7 +172,7 @@ function endPointer(e: PointerEvent): void {
   const dur = performance.now() - downAt;
   if (!cranking && dur < TAP_MAX_MS) {
     buzz(10);
-    if (connected && peer) sendMsg(peer, { kind: 'tap' });
+    if (motionGranted && connected && peer) sendMsg(peer, { kind: 'tap' });
     reelEl.classList.remove('tapped');
     void reelEl.offsetWidth;
     reelEl.classList.add('tapped');
@@ -184,35 +185,36 @@ function endPointer(e: PointerEvent): void {
 reelEl.addEventListener('pointerup', endPointer);
 reelEl.addEventListener('pointercancel', endPointer);
 
-// ---- Motion -------------------------------------------------------------------
-// iOS needs an explicit user gesture to unlock the orientation sensor, so the
-// button both requests permission, unlocks audio, and starts streaming.
-startBtn.addEventListener('click', async () => {
+// ---- Motion + connection -------------------------------------------------------
+// Flow: land on the permission prompt -> grant motion -> only then connect and
+// reveal the wheel. Motion is a hard gate: until it's settled we never
+// establish the link, so the phone is not considered connected.
+permBtn.addEventListener('click', async () => {
   ensureAudio();
   const granted = await requestMotionPermission();
   if (!granted) {
-    setStatus('Motion permission was not granted.');
+    permNote.textContent =
+      'Motion access is required to aim the rod. Allow it in your browser settings, then tap again.';
     return;
   }
+  motionGranted = true;
+  perm.classList.add('hidden');
+  wheelView.classList.remove('hidden');
   startTilt((s) => {
-    // Tilt only steers the rod (lean left/right); v (crank) comes from the
-    // finger rotary gesture on the wheel, updated in the rAF loop.
     latest.x = s.x;
     latest.y = s.y;
-    if (connected && peer) sendMsg(peer, { kind: 'ctrl', x: s.x, y: s.y, v: latest.v });
-    readout.textContent = `aim ${s.x.toFixed(2)}  crank ${latest.v.toFixed(1)} rad/s`;
+    if (motionGranted && connected && peer) {
+      sendMsg(peer, { kind: 'ctrl', x: s.x, y: s.y, v: latest.v });
+    }
   });
   startThrowDetection(() => {
     buzz(40);
     ratchetClick();
-    if (connected && peer) sendMsg(peer, { kind: 'throw' });
+    if (motionGranted && connected && peer) sendMsg(peer, { kind: 'throw' });
   });
-  startBtn.disabled = true;
-  startBtn.textContent = 'Motion enabled';
-  setStatus('Ready — lean to aim, spin the wheel to crank.');
+  void connect();
 });
 
-// ---- WebRTC (responder: phone) ---------------------------------------------------
 // Drop loopback ICE candidates before shipping the answer through the relay.
 function trimSdp(sdp: string): string {
   return sdp
@@ -221,11 +223,7 @@ function trimSdp(sdp: string): string {
     .join('\n');
 }
 
-async function applyRoom(roomCode: string): Promise<void> {
-  roomCodeEl.textContent = roomCode;
-  setStatus('Waiting for the game…');
-  pairHint.textContent = 'Listening for the game… it sends the offer automatically.';
-
+async function connect(): Promise<void> {
   const config = await fetchRtcConfig();
   peer = createLink({
     initiator: false,
@@ -238,41 +236,32 @@ async function applyRoom(roomCode: string): Promise<void> {
     },
     onOpen: () => {
       connected = true;
-      setStatus('Connected. Lean to aim, spin the wheel to crank!');
-      pairHint.textContent = 'Linked with the game.';
     },
     onData: (m: Msg) => {
-      if (m.kind === 'haptic') {
-        buzz(m.ms);
-      } else if (m.kind === 'hello') {
-        setStatus('Connected. You are the reel!');
-      }
+      if (m.kind === 'haptic') buzz(m.ms);
     },
     onClose: () => {
       connected = false;
-      setStatus('Disconnected from the game.');
     },
-    onError: (e) => setStatus('Link error: ' + e.message),
   });
   if (location.search.includes('debug=1')) (window as Window & { __peer?: unknown }).__peer = peer;
 
-  // Poll the relay for the game's offer. Once it arrives we answer, and the
-  // onSignal handler above ships the answer back — completing the handshake
-  // with no copy/paste.
+  // Poll the relay for the game's offer. The game posts it with a 300s TTL, so
+  // starting this only after the user grants motion permission is safe.
   void waitForSignal(roomCode, 'offer')
     .then((offer) => {
       peer?.signal(JSON.parse(offer));
-      setStatus('Answering…');
     })
-    .catch((e) => {
-      setStatus('Could not reach the relay: ' + (e as Error).message);
+    .catch(() => {
+      // aborted or the offer hasn't arrived yet — the poll loop keeps trying.
     });
 }
 
-const roomParam = new URLSearchParams(location.search).get('room');
-if (roomParam) {
-  void applyRoom(roomParam.toUpperCase());
-} else {
-  pairHint.textContent = 'This page was opened without a room code.';
-  setStatus('Scan the QR on the computer screen — it opens this page for you.');
+// Opened without a room code: there's nothing to connect to, so swap the
+// permission prompt for a short explainer.
+if (!roomCode) {
+  perm.classList.add('hidden');
+  statusEl.textContent =
+    'Open this page by scanning the QR on the computer screen — it carries the room code.';
+  statusEl.classList.remove('hidden');
 }

@@ -17,7 +17,9 @@ import {
   type Scene,
   type FishView,
   type Ripple,
+  type Particle,
 } from './render';
+import * as sfx from './audio';
 import rodImgUrl from '../assets/fishing-rod-black.png';
 import './style.css';
 
@@ -92,6 +94,9 @@ const S = {
   fish: null as ActiveFish | null,
   ambient: [] as AmbientFish[],
   ripples: [] as Ripple[],
+  particles: [] as Particle[],
+  shake: 0,
+  rodShake: 0,
   bursting: false,
   burstT: 0,
   tension: 0,
@@ -126,6 +131,40 @@ function addRipple(x: number, y: number, max: number): void {
   if (S.ripples.length > 24) S.ripples.shift();
 }
 
+function addSplash(x: number, y: number, n: number): void {
+  for (let i = 0; i < n; i++) {
+    S.particles.push({
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 240,
+      vy: -(70 + Math.random() * 190),
+      t: 0,
+      ttl: 0.5 + Math.random() * 0.4,
+      size: 2 + Math.random() * 3,
+      color: 'rgba(220,240,255,0.9)',
+      kind: 'splash',
+    });
+  }
+}
+
+function addSparkle(x: number, y: number, n: number): void {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 40 + Math.random() * 190;
+    S.particles.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      t: 0,
+      ttl: 0.6 + Math.random() * 0.5,
+      size: 2 + Math.random() * 3.5,
+      color: 'rgba(255,221,87,0.95)',
+      kind: 'sparkle',
+    });
+  }
+}
+
 function flash(text: string): void {
   S.flash = text;
   S.flashT = 0;
@@ -152,6 +191,7 @@ const phone = { x: 0, y: 0, v: 0, frames: 0 };
 const keys = new Set<string>();
 const KEY_X: Record<string, number> = { a: -1, arrowleft: -1, d: 1, arrowright: 1 };
 window.addEventListener('keydown', (e) => {
+  sfx.ensure();
   const k = e.key.toLowerCase();
   if (k === ' ' && !e.repeat) handleTap();
   if (k === 't' && !e.repeat) handleThrow();
@@ -209,6 +249,8 @@ function doCatch(): void {
   S.state = 'caught';
   S.stateT = 0;
   sendHaptic([60, 90, 60]);
+  sfx.catchFish();
+  addSparkle(S.bobber.x, S.bobber.y, 26);
   resultImg.src = f.def.img;
   resultName.textContent = f.def.kind === 'junk' ? `Junk: ${f.def.name}` : f.def.name;
   resultDetail.textContent =
@@ -224,9 +266,11 @@ function doLose(text: string): void {
   S.state = 'lost';
   S.stateT = 0;
   sendHaptic(300);
+  sfx.lose();
 }
 
 function handleThrow(): void {
+  sfx.ensure();
   // A physical throw of the phone casts with full power — and re-throws the
   // line if it's already in the water.
   if (S.state === 'idle' || S.state === 'waiting') {
@@ -235,6 +279,7 @@ function handleThrow(): void {
 }
 
 function handleTap(): void {
+  sfx.ensure();
   if (S.state === 'idle') {
     startCast();
   } else if (S.state === 'bite') {
@@ -267,6 +312,21 @@ function update(dt: number): void {
   }
   for (const r of S.ripples) r.r += 55 * dt;
   S.ripples = S.ripples.filter((r) => r.r < r.max);
+
+  // Reset per-frame shake/reel (the fight case overrides them below).
+  S.shake = 0;
+  S.rodShake = 0;
+  sfx.setReel(0);
+
+  // Particles: gravity on splash droplets; drop the expired ones.
+  for (const p of S.particles) {
+    p.t += dt;
+    if (p.kind === 'splash') p.vy += 520 * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+  S.particles = S.particles.filter((p) => p.t < p.ttl);
+  if (S.particles.length > 200) S.particles.splice(0, S.particles.length - 200);
 
   for (const a of S.ambient) {
     a.x += a.dir * a.speed * dt;
@@ -303,6 +363,8 @@ function update(dt: number): void {
         S.bobber = { x: c.tx, y: c.ty };
         S.bobberBase = { x: c.tx, y: c.ty };
         addRipple(c.tx, c.ty, 46);
+        sfx.splash();
+        addSplash(c.tx, c.ty, 14);
         S.state = 'waiting';
         S.stateT = 0;
         scheduleBite();
@@ -335,6 +397,7 @@ function update(dt: number): void {
         S.stateT = 0;
         addRipple(S.bobber.x, S.bobber.y, 30);
         sendHaptic(90);
+        sfx.bite();
       }
       break;
     }
@@ -379,6 +442,11 @@ function update(dt: number): void {
         0,
         1
       );
+      // Juice: a little camera shake while cranking (a bit more on a hard pull),
+      // and a rod tug when you're NOT reeling (scaled by line tension).
+      S.shake = clamp(0.4 * r + (S.bursting ? 0.4 * p : 0), 0, 1);
+      S.rodShake = r < 0.18 ? clamp(0.3 + 0.7 * S.tension + (S.bursting ? 0.5 * p : 0), 0, 1) : 0;
+      sfx.setReel(r);
       S.bobber.x = S.bobberBase.x - (S.bursting ? p * 22 : 0);
       S.bobber.y =
         WATER_Y + 8 + (S.bursting ? 10 + 5 * Math.sin(S.stateT * 13) : 3 * Math.sin(S.stateT * 2.6));
@@ -410,18 +478,6 @@ function update(dt: number): void {
 
 // ---- Render ---------------------------------------------------------------------
 function sceneView(): Scene {
-  const f = S.fish;
-  const fishView: FishView | null = f
-    ? {
-        img: f.def.img,
-        x: f.x,
-        y: f.y,
-        size: f.def.kind === 'junk' ? 44 : 58 + (f.size / f.def.sizeMax) * 42,
-        dir: f.dir,
-        alpha: 0.92,
-        rot: Math.sin(S.t * 6 + f.phase) * 0.18 * (S.state === 'fight' ? 1.7 : 1),
-      }
-    : null;
   const ambient: FishView[] = S.ambient.map((a) => ({
     img: a.img,
     x: a.x,
@@ -438,9 +494,12 @@ function sceneView(): Scene {
     bobber: { ...S.bobber },
     bobberDip: S.bobberDip,
     lineSlack: S.lineSlack,
-    fish: fishView,
+    fish: null, // the hooked prey stays hidden until the catch reveal
     ambient,
     ripples: S.ripples,
+    particles: S.particles,
+    shake: S.shake,
+    rodShake: S.rodShake,
     tension: S.tension,
     progress: S.progress,
     points: S.points,
@@ -523,6 +582,7 @@ async function startSession(): Promise<void> {
       }
     },
     onOpen: () => {
+      sfx.ensure();
       pollAbort?.abort();
       setStatus('Controller connected. Lean to aim, flick to throw, spin the wheel to crank!');
       pairPanel.classList.add('hidden');

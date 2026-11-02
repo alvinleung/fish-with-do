@@ -7,28 +7,27 @@
   </head>
   <body>
     <div id="app">
-      <h1>Fish With Do</h1>
-      <p class="sub">
-        You are the reel. Lean left/right to aim the rod, flick the phone to
-        throw the line, spin the wheel with your finger to crank it, and tap
-        the wheel to strike.
-      </p>
-
-      <div id="reel">
-        <img id="reelBg" alt="" />
-        <img id="reelFg" alt="" />
+      <!-- Screen 1: motion permission prompt (shown until motion is granted) -->
+      <div id="perm" class="screen">
+        <h1>Fish With Do</h1>
+        <p class="perm-sub">
+          You're the reel — lean to aim, spin the wheel to crank, tap to strike.
+          This reads your phone's motion to control the rod (no camera).
+        </p>
+        <button id="permBtn" class="primary">Enable motion to play</button>
+        <p id="permNote" class="hint"></p>
       </div>
 
-      <div id="status" class="status">Idle</div>
-
-      <button id="startBtn" class="primary">Enable motion</button>
-      <p id="tiltReadout" class="tilt-readout">Tap “Enable motion”, then hold the phone like a rod</p>
-
-      <div id="pair" class="panel">
-        <h2>Connection</h2>
-        <p id="roomCode" class="room-code"></p>
-        <p id="pairHint" class="hint">Pairing with the game…</p>
+      <!-- Screen 2: just the wheel (shown once motion is granted) -->
+      <div id="wheelView" class="screen hidden">
+        <div id="reel">
+          <img id="reelBg" alt="" />
+          <img id="reelFg" alt="" />
+        </div>
       </div>
+
+      <!-- Kept hidden; shown only for edge cases (e.g. opened without a room) -->
+      <div id="status" class="status hidden"></div>
     </div>
     <script type="module" src="/src/controller/main.ts"></script>
   </body>
