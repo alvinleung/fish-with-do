@@ -34,6 +34,15 @@ const debugEl = $('debug');
 const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
 const pairPanel = $('pairPanel');
 const qrHint = $('qrHint');
+const soundHint = $('soundHint') as HTMLButtonElement;
+
+// Browsers block Web Audio until a user gesture on THIS page. Tap the pill (or
+// press any key) to unlock the shared sound so solo/phone play isn't silent.
+function enableSound(): void {
+  sfx.ensure();
+  soundHint.classList.add('hidden');
+}
+soundHint.addEventListener('pointerdown', enableSound);
 
 // The CSS scales the canvas edge-to-edge; render at device resolution so it
 // stays crisp. All drawing keeps using the 960x600 world units.
@@ -249,7 +258,7 @@ function readInputFor(id: PlayerId): { x: number; v: number } {
 }
 
 window.addEventListener('keydown', (e) => {
-  sfx.ensure();
+  enableSound();
   const k = e.key.toLowerCase();
   if (k === ' ' && !e.repeat) handleTap(players[0]);
   if (k === 't' && !e.repeat) handleThrow(players[0]);
@@ -611,7 +620,8 @@ function setupPlayerLink(id: PlayerId): Promise<void> {
   L.pollAbort?.abort();
   const abort = new AbortController();
   L.pollAbort = abort;
-  const room = (L.room = makeRoom());
+  // The room was already minted in startSession (so the QR can carry it).
+  const room = L.room;
 
   return fetchRtcConfig().then((config) => {
     const peer = createLink({
@@ -676,13 +686,17 @@ function handleData(id: PlayerId, m: Msg): void {
 function updateStatus(): void {
   const c1 = players[0].connected;
   const c2 = players[1].connected;
+  const n = (c1 ? 1 : 0) + (c2 ? 1 : 0);
   statusEl.textContent =
-    c1 && c2
+    n === 2
       ? 'Both players connected — happy fishing!'
-      : 'Waiting for players: ' + [c1 ? 'P1 ✓' : 'P1…', c2 ? 'P2 ✓' : 'P2…'].join('  ');
+      : n === 1
+        ? 'Fishing! ' + (c1 ? 'P1' : 'P2') + ' is in — scan the other QR to join as a rival.'
+        : 'Scan a QR to join — play solo, or add a 2nd phone for 1v1.';
   // Collapse the pairing panel to just the "New codes" button once both are in,
-  // so it stops covering the players' HUD corners.
-  pairPanel.classList.toggle('settled', c1 && c2);
+  // so it stops covering the players' HUD corners. A solo player keeps it open
+  // so a rival can still scan in later.
+  pairPanel.classList.toggle('settled', n === 2);
 }
 
 function resetPlayers(): void {
@@ -747,16 +761,17 @@ function startSession(): void {
   }
   pairPanel.classList.remove('hidden');
   qrHint.textContent =
-    'Player 1 (red) scans the left code · Player 2 (blue) scans the right.';
+    'Player 1 (red) → left code · Player 2 (blue) → right code. Solo or 1v1.';
   updateStatus();
   for (const id of [1, 2] as PlayerId[]) {
+    links[id].room = makeRoom();
     setPairUI(id);
     setupPlayerLink(id).catch(() => {});
   }
 }
 
 newSessionBtn.addEventListener('click', () => {
-  sfx.ensure();
+  enableSound();
   startSession();
 });
 
