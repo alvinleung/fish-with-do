@@ -39,6 +39,10 @@ let peer: Peer | null = null;
 let motionGranted = false;
 let connected = false;
 const roomCode = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+// ?p=1 (red) or ?p=2 (blue) — which player this phone is; tints the wheel.
+document.body.classList.add(
+  new URLSearchParams(location.search).get('p') === '2' ? 'p2' : 'p1'
+);
 // Which screen the phone is showing. Only 'fishing' (the wheel) streams control
 // to the game; 'bait' and 'catch' are the other two states of the loop.
 let phoneState: 'bait' | 'fishing' | 'catch' = 'bait';

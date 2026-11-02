@@ -7,6 +7,16 @@
   --muted: #94a3b8;
   --accent: #38bdf8;
   --accent-2: #0ea5e9;
+  --pc: #7fd1ff; /* player color, overridden by body.p1 / body.p2 */
+}
+
+/* Which player this phone is (from ?p=): P1 red, P2 blue. */
+body.p1 {
+  --pc: #ff5a5a;
+}
+
+body.p2 {
+  --pc: #4d8bff;
 }
 
 * {
@@ -112,6 +122,8 @@ button:disabled {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   overscroll-behavior: contain;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px var(--pc), 0 0 34px var(--pc);
 }
 
 #reel img {

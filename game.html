@@ -16,28 +16,41 @@
       </header>
 
       <div id="pairWrap">
-        <div id="pair" class="panel">
-          <h2>Pair your phone</h2>
-          <img id="pairQR" class="qr hidden" alt="Pairing QR — scan with your phone" />
-          <p id="roomCode" class="room-code"></p>
-          <p id="qrHint" class="hint">Generating the QR code…</p>
-          <div class="pair-row">
-            <details class="fallback">
-              <summary>QR won't scan? Open this URL on your phone</summary>
-              <input id="linkUrl" readonly />
-              <button id="copyUrlBtn">Copy URL</button>
-            </details>
-            <button id="newSessionBtn" class="ghost">New code</button>
-          </div>
-        </div>
-      </div>
+        <div id="pairPanel" class="panel">
+          <h2>Pair two phones</h2>
+          <p id="qrHint" class="hint">Generating the QR codes…</p>
 
-      <div id="resultOverlay" class="overlay hidden">
-        <div class="overlay-card">
-          <img id="resultImg" alt="Catch" />
-          <h2 id="resultName"></h2>
-          <p id="resultDetail"></p>
-          <button id="againBtn" class="primary">Cast again</button>
+          <div class="pair-duo">
+            <div class="pair-col p1">
+              <span class="pair-tag">Player 1 · red</span>
+              <div class="qr-box hidden">
+                <img id="pairQR1" class="qr" alt="Pairing QR for Player 1" />
+              </div>
+              <p id="roomCode1" class="room-code"></p>
+              <details class="fallback">
+                <summary>QR won't scan? Open this URL</summary>
+                <input id="linkUrl1" readonly />
+                <button id="copyUrlBtn1">Copy URL</button>
+              </details>
+            </div>
+
+            <div class="pair-col p2">
+              <span class="pair-tag">Player 2 · blue</span>
+              <div class="qr-box hidden">
+                <img id="pairQR2" class="qr" alt="Pairing QR for Player 2" />
+              </div>
+              <p id="roomCode2" class="room-code"></p>
+              <details class="fallback">
+                <summary>QR won't scan? Open this URL</summary>
+                <input id="linkUrl2" readonly />
+                <button id="copyUrlBtn2">Copy URL</button>
+              </details>
+            </div>
+          </div>
+
+          <div class="pair-row">
+            <button id="newSessionBtn" class="ghost">New codes</button>
+          </div>
         </div>
       </div>
     </div>

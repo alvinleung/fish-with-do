@@ -17,6 +17,8 @@ import {
   type Scene,
   type Ripple,
   type Particle,
+  type PlayerId,
+  type PlayerLayout,
 } from './render';
 import * as sfx from './audio';
 import rodImgUrl from '../assets/fishing-rod-black.png';
@@ -30,17 +32,8 @@ const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 const statusEl = $('status');
 const debugEl = $('debug');
 const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
-const pairPanel = $('pairWrap');
-const pairQR = $('pairQR') as HTMLImageElement;
-const roomCodeEl = $('roomCode');
+const pairPanel = $('pairPanel');
 const qrHint = $('qrHint');
-const linkUrl = $('linkUrl') as HTMLInputElement;
-const copyUrlBtn = $('copyUrlBtn') as HTMLButtonElement;
-const resultOverlay = $('resultOverlay');
-const resultImg = $('resultImg') as HTMLImageElement;
-const resultName = $('resultName');
-const resultDetail = $('resultDetail');
-const againBtn = $('againBtn') as HTMLButtonElement;
 
 // The CSS scales the canvas edge-to-edge; render at device resolution so it
 // stays crisp. All drawing keeps using the 960x600 world units.
@@ -54,7 +47,32 @@ fitCanvas();
 window.addEventListener('resize', fitCanvas);
 setRodUrl(rodImgUrl);
 
-// ---- Game state ------------------------------------------------------------
+// ---- Two players -----------------------------------------------------------
+// P1 (red) leans left, P2 (blue) leans right. Each owns a stretch of water and
+// a corner of the HUD. The pond, sky and water line are shared.
+const LAYOUTS: PlayerLayout[] = [
+  {
+    id: 1,
+    color: '#ff5a5a',
+    pivot: { x: 150, y: H + 30 },
+    side: -1,
+    castMinX: 130,
+    castMaxX: 430,
+    align: 'left',
+    hudX: 20,
+  },
+  {
+    id: 2,
+    color: '#4d8bff',
+    pivot: { x: 810, y: H + 30 },
+    side: 1,
+    castMinX: 530,
+    castMaxX: 830,
+    align: 'right',
+    hudX: W - 20,
+  },
+];
+
 const BITE_WINDOW = 1.4; // seconds you have to strike
 const CAST_TIME = 0.8;
 const NOTCH_RAD = Math.PI / 6; // 30° — one ratchet click per this much crank
@@ -68,45 +86,87 @@ interface ActiveFish {
   phase: number;
 }
 
-const S = {
-  t: 0,
-  state: 'idle' as GameState,
-  stateT: 0,
-  aim: 0,
-  rodAngle: rodAngleFor(0),
-  bobber: { x: 0, y: 0 },
-  bobberBase: { x: 0, y: 0 },
-  bobberDip: 0,
-  lineSlack: 0.55,
-  cast: null as null | { fx: number; fy: number; tx: number; ty: number; t: number; dur: number; arc: number },
-  biteT: 0,
-  fish: null as ActiveFish | null,
-  ripples: [] as Ripple[],
-  particles: [] as Particle[],
-  shake: 0,
-  rodShake: 0,
-  bursting: false,
-  burstT: 0,
-  tension: 0,
-  progress: 0,
-  crankAcc: 0,
-  crankNotch: 0,
-  flash: null as string | null,
-  flashT: 0,
-  points: 0,
-  catchCount: 0,
-  lastName: null as string | null,
-  bait: null as string | null,
-};
-
-function addRipple(x: number, y: number, max: number): void {
-  S.ripples.push({ x, y, r: 5, max });
-  if (S.ripples.length > 24) S.ripples.shift();
+// Per-player game state. Only the shared clock is global.
+interface Player {
+  id: PlayerId;
+  layout: PlayerLayout;
+  connected: boolean;
+  state: GameState;
+  stateT: number;
+  aim: number;
+  rodAngle: number;
+  bobber: { x: number; y: number };
+  bobberBase: { x: number; y: number };
+  bobberDip: number;
+  lineSlack: number;
+  cast: null | { fx: number; fy: number; tx: number; ty: number; t: number; dur: number; arc: number };
+  biteT: number;
+  fish: ActiveFish | null;
+  ripples: Ripple[];
+  particles: Particle[];
+  bursting: boolean;
+  burstT: number;
+  tension: number;
+  progress: number;
+  reelR: number; // live crank 0..1 (drives the shared reel sound)
+  rodShake: number;
+  crankAcc: number;
+  crankNotch: number;
+  flash: string | null;
+  flashT: number;
+  points: number;
+  catchCount: number;
+  lastName: string | null;
+  bait: string | null;
 }
 
-function addSplash(x: number, y: number, n: number): void {
+function makePlayer(id: PlayerId, layout: PlayerLayout): Player {
+  return {
+    id,
+    layout,
+    connected: false,
+    state: 'baiting',
+    stateT: 0,
+    aim: 0,
+    rodAngle: rodAngleFor(0, layout.side),
+    bobber: { x: 0, y: 0 },
+    bobberBase: { x: 0, y: 0 },
+    bobberDip: 0,
+    lineSlack: 0.55,
+    cast: null,
+    biteT: 0,
+    fish: null,
+    ripples: [],
+    particles: [],
+    bursting: false,
+    burstT: 0,
+    tension: 0,
+    progress: 0,
+    reelR: 0,
+    rodShake: 0,
+    crankAcc: 0,
+    crankNotch: 0,
+    flash: null,
+    flashT: 0,
+    points: 0,
+    catchCount: 0,
+    lastName: null,
+    bait: null,
+  };
+}
+
+const players: Player[] = [makePlayer(1, LAYOUTS[0]), makePlayer(2, LAYOUTS[1])];
+const G = { t: 0 };
+
+// ---- Per-player effects ----------------------------------------------------
+function addRipple(p: Player, x: number, y: number, max: number): void {
+  p.ripples.push({ x, y, r: 5, max });
+  if (p.ripples.length > 24) p.ripples.shift();
+}
+
+function addSplash(p: Player, x: number, y: number, n: number): void {
   for (let i = 0; i < n; i++) {
-    S.particles.push({
+    p.particles.push({
       x,
       y,
       vx: (Math.random() - 0.5) * 240,
@@ -120,11 +180,11 @@ function addSplash(x: number, y: number, n: number): void {
   }
 }
 
-function addSparkle(x: number, y: number, n: number): void {
+function addSparkle(p: Player, x: number, y: number, n: number): void {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const sp = 40 + Math.random() * 190;
-    S.particles.push({
+    p.particles.push({
       x,
       y,
       vx: Math.cos(a) * sp,
@@ -138,18 +198,18 @@ function addSparkle(x: number, y: number, n: number): void {
   }
 }
 
-function flash(text: string): void {
-  S.flash = text;
-  S.flashT = 0;
+function flash(p: Player, text: string): void {
+  p.flash = text;
+  p.flashT = 0;
 }
 
-function scheduleBite(): void {
-  S.biteT = 2.5 + Math.random() * 5;
+function scheduleBite(p: Player): void {
+  p.biteT = 2.5 + Math.random() * 5;
   const def = pickCatch();
-  S.fish = {
+  p.fish = {
     def,
     size: randomSize(def),
-    x: 60 + Math.random() * 320,
+    x: p.layout.castMinX + Math.random() * (p.layout.castMaxX - p.layout.castMinX),
     y: WATER_Y + 70 + Math.random() * 130,
     dir: 1,
     phase: Math.random() * 6.28,
@@ -157,17 +217,42 @@ function scheduleBite(): void {
 }
 
 // ---- Input -----------------------------------------------------------------
-let peer: Peer | null = null;
+const links: Record<PlayerId, { peer: Peer | null; room: string; pollAbort: AbortController | null }> = {
+  1: { peer: null, room: '', pollAbort: null },
+  2: { peer: null, room: '', pollAbort: null },
+};
 
-// Latest frame from the phone; keyboard overrides it for desktop testing.
-const phone = { x: 0, y: 0, v: 0, frames: 0 };
+// Latest frame from each phone; P1 also has a keyboard fallback for desktop.
+const phones: Record<PlayerId, { x: number; y: number; v: number; frames: number }> = {
+  1: { x: 0, y: 0, v: 0, frames: 0 },
+  2: { x: 0, y: 0, v: 0, frames: 0 },
+};
 const keys = new Set<string>();
 const KEY_X: Record<string, number> = { a: -1, arrowleft: -1, d: 1, arrowright: 1 };
+
+function readInputFor(id: PlayerId): { x: number; v: number } {
+  const ph = phones[id];
+  if (id === 1) {
+    let kx = 0;
+    keys.forEach((k) => {
+      kx += KEY_X[k] ?? 0;
+    });
+    const crank =
+      keys.has('w') || keys.has('arrowup')
+        ? MAX_CRANK_RAD_S
+        : keys.has('s') || keys.has('arrowdown')
+          ? -MAX_CRANK_RAD_S * 0.6
+          : 0;
+    return { x: kx !== 0 ? clamp(kx, -1, 1) : ph.x, v: crank !== 0 ? crank : ph.v };
+  }
+  return { x: ph.x, v: ph.v };
+}
+
 window.addEventListener('keydown', (e) => {
   sfx.ensure();
   const k = e.key.toLowerCase();
-  if (k === ' ' && !e.repeat) handleTap();
-  if (k === 't' && !e.repeat) handleThrow();
+  if (k === ' ' && !e.repeat) handleTap(players[0]);
+  if (k === 't' && !e.repeat) handleThrow(players[0]);
   if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown'].includes(k) || k === ' ') {
     keys.add(k);
     e.preventDefault();
@@ -175,342 +260,343 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
-function readInput(): { x: number; v: number } {
-  let kx = 0;
-  keys.forEach((k) => {
-    kx += KEY_X[k] ?? 0;
-  });
-  const crank =
-    keys.has('w') || keys.has('arrowup')
-      ? MAX_CRANK_RAD_S
-      : keys.has('s') || keys.has('arrowdown')
-        ? -MAX_CRANK_RAD_S * 0.6
-        : 0;
-  return { x: kx !== 0 ? clamp(kx, -1, 1) : phone.x, v: crank !== 0 ? crank : phone.v };
-}
-
-function sendHaptic(ms: number | number[]): void {
+function sendHaptic(id: PlayerId, ms: number | number[]): void {
+  const peer = links[id].peer;
   if (peer) sendMsg(peer, { kind: 'haptic', ms });
 }
 
 // ---- State machine -----------------------------------------------------------
-// power = 1 is a normal tap cast; a phone throw casts farther, faster and
-// with a higher arc.
-function startCast(power = 1): void {
-  const far = (clamp(S.aim, -1, 1) + 1) / 2; // 0 = near shore, 1 = far out
-  const tx = clamp(680 - 550 * far * power, 30, W - 40);
-  const ty = WATER_Y + 24 + 120 * (1 - far);
-  S.cast = {
-    fx: S.bobber.x,
-    fy: S.bobber.y,
+function startCast(p: Player, power = 1): void {
+  const L = p.layout;
+  const t01 = (clamp(p.aim, -1, 1) + 1) / 2; // 0..1 across this player's water
+  const tx = L.castMinX + (L.castMaxX - L.castMinX) * t01;
+  const ty = WATER_Y + 24 + 90 * (1 - t01);
+  p.cast = {
+    fx: p.bobber.x,
+    fy: p.bobber.y,
     tx,
     ty,
     t: 0,
     dur: CAST_TIME / Math.sqrt(power),
-    arc: 170 + (power - 1) * 220,
+    arc: 150 + (power - 1) * 180,
   };
-  S.state = 'casting';
-  S.stateT = 0;
+  p.state = 'casting';
+  p.stateT = 0;
 }
 
-function doCatch(): void {
-  const f = S.fish as ActiveFish;
-  S.points += f.def.points;
-  S.catchCount += 1;
-  S.lastName = f.def.name;
-  S.fish = null;
-  S.state = 'caught';
-  S.stateT = 0;
-  sendHaptic([60, 90, 60]);
+function doStrike(p: Player): void {
+  if (p.state !== 'bite') return;
+  p.state = 'fight';
+  p.stateT = 0;
+  p.tension = 0.3;
+  p.progress = 0.15;
+  p.bursting = false;
+  p.burstT = 0.7;
+  p.crankAcc = 0;
+  p.crankNotch = 0;
+  addRipple(p, p.bobber.x, p.bobber.y, 34);
+}
+
+function doCatch(p: Player): void {
+  const f = p.fish as ActiveFish;
+  p.points += f.def.points;
+  p.catchCount += 1;
+  p.lastName = f.def.name;
+  p.fish = null;
+  p.state = 'caught';
+  p.stateT = 0;
+  sendHaptic(p.id, [60, 90, 60]);
+  const peer = links[p.id].peer;
   if (peer) sendMsg(peer, { kind: 'catch', id: f.def.id, size: f.size });
   sfx.catchFish();
-  addSparkle(S.bobber.x, S.bobber.y, 26);
-  resultImg.src = f.def.img;
-  resultName.textContent = f.def.kind === 'junk' ? `Junk: ${f.def.name}` : f.def.name;
-  resultDetail.textContent =
-    f.def.kind === 'junk'
-      ? `${f.size} ${f.def.sizeUnit} · 0 pts — keep the water clean`
-      : `${f.size} ${f.def.sizeUnit} · ${f.def.points} pts`;
-  resultOverlay.classList.remove('hidden');
+  addSparkle(p, p.bobber.x, p.bobber.y, 26);
+  flash(p, `Player ${p.id} caught a ${f.def.name}!`);
 }
 
-function doLose(text: string): void {
-  flash(text);
-  S.fish = null;
-  S.state = 'lost';
-  S.stateT = 0;
-  sendHaptic(300);
+function doLose(p: Player, text: string): void {
+  flash(p, text);
+  p.fish = null;
+  p.state = 'lost';
+  p.stateT = 0;
+  sendHaptic(p.id, 300);
   sfx.lose();
 }
 
-function handleThrow(): void {
+// The one big flick, two jobs per player: strike on a bite, otherwise cast.
+function handleThrow(p: Player): void {
   sfx.ensure();
-  // The one big flick, two jobs: it sets the hook when the fish is biting, and
-  // otherwise casts (or re-throws) the line with full power.
-  if (S.state === 'bite') {
-    doStrike();
-  } else if (S.state === 'idle' || S.state === 'waiting') {
-    startCast(1.3);
+  if (p.state === 'bite') {
+    doStrike(p);
+  } else if (p.state === 'idle' || p.state === 'waiting') {
+    startCast(p, 1.3);
   }
 }
 
-// Sets the hook on a bite — entered from the throw flick (handleThrow).
-function doStrike(): void {
-  if (S.state !== 'bite') return;
-  S.state = 'fight';
-  S.stateT = 0;
-  S.tension = 0.3;
-  S.progress = 0.15;
-  S.bursting = false;
-  S.burstT = 0.7;
-  S.crankAcc = 0;
-  S.crankNotch = 0;
-  addRipple(S.bobber.x, S.bobber.y, 34);
-}
-
-// Tap is only "continue / proceed" now. Casting and striking are both the throw.
-function handleTap(): void {
+// Tap is only "continue / proceed". Casting and striking are both the throw.
+function handleTap(p: Player): void {
   sfx.ensure();
-  if (S.state === 'baiting') {
-    // Desktop fallback (no phone): pick the default bait and start fishing.
-    S.bait = S.bait ?? 'worm';
-    S.state = 'idle';
-    S.stateT = 0;
-  } else if (S.state === 'caught') {
-    // Proceed past the catch reveal — re-bait before the next cast.
-    resultOverlay.classList.add('hidden');
-    S.state = 'baiting';
-    S.stateT = 0;
-  } else if (S.state === 'lost') {
-    S.state = 'idle';
-    S.stateT = 0;
+  if (p.state === 'baiting') {
+    p.bait = p.bait ?? 'worm';
+    p.state = 'idle';
+    p.stateT = 0;
+  } else if (p.state === 'caught') {
+    p.state = 'baiting';
+    p.stateT = 0;
+  } else if (p.state === 'lost') {
+    p.state = 'idle';
+    p.stateT = 0;
   }
 }
-
-againBtn.addEventListener('click', handleTap);
-canvas.addEventListener('click', () => {
-  if (S.state !== 'caught') handleTap();
-});
 
 // ---- Update --------------------------------------------------------------------
-function update(dt: number): void {
-  S.t += dt;
-  S.stateT += dt;
-  if (S.flash) {
-    S.flashT += dt / 1.8;
-    if (S.flashT >= 1) S.flash = null;
+function updatePlayer(p: Player, dt: number): void {
+  p.stateT += dt;
+  p.reelR = 0;
+  p.rodShake = 0;
+  if (p.flash) {
+    p.flashT += dt / 1.8;
+    if (p.flashT >= 1) p.flash = null;
   }
-  for (const r of S.ripples) r.r += 55 * dt;
-  S.ripples = S.ripples.filter((r) => r.r < r.max);
-
-  // Reset per-frame shake (the fight case overrides it below).
-  S.shake = 0;
-  S.rodShake = 0;
-  sfx.setReel(0);
-
-  // Particles: gravity on splash droplets; drop the expired ones.
-  for (const p of S.particles) {
-    p.t += dt;
-    if (p.kind === 'splash') p.vy += 520 * dt;
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
+  for (const r of p.ripples) r.r += 55 * dt;
+  p.ripples = p.ripples.filter((r) => r.r < r.max);
+  for (const pt of p.particles) {
+    pt.t += dt;
+    if (pt.kind === 'splash') pt.vy += 520 * dt;
+    pt.x += pt.vx * dt;
+    pt.y += pt.vy * dt;
   }
-  S.particles = S.particles.filter((p) => p.t < p.ttl);
-  if (S.particles.length > 200) S.particles.splice(0, S.particles.length - 200);
+  p.particles = p.particles.filter((pt) => pt.t < pt.ttl);
+  if (p.particles.length > 200) p.particles.splice(0, p.particles.length - 200);
 
-  const input = readInput();
-  S.aim += (input.x - S.aim) * (1 - Math.exp(-dt * 6));
-  S.rodAngle += (rodAngleFor(S.aim) - S.rodAngle) * (1 - Math.exp(-dt * 7));
+  const input = readInputFor(p.id);
+  p.aim += (input.x - p.aim) * (1 - Math.exp(-dt * 6));
+  p.rodAngle += (rodAngleFor(p.aim, p.layout.side) - p.rodAngle) * (1 - Math.exp(-dt * 7));
+  const L = p.layout;
 
-  switch (S.state) {
+  switch (p.state) {
     case 'baiting':
     case 'idle': {
-      const tip = rodTip(S.rodAngle);
-      S.bobber.x = tip.x;
-      S.bobber.y = tip.y + 66 + Math.sin(S.t * 1.8) * 4;
-      S.lineSlack = 0.55;
-      S.bobberDip = 0;
+      const tip = rodTip(p.rodAngle, L.pivot);
+      p.bobber.x = tip.x;
+      p.bobber.y = tip.y + 66 + Math.sin(G.t * 1.6) * 4;
+      p.bobberDip = 0;
       break;
     }
     case 'casting': {
-      const c = S.cast as { fx: number; fy: number; tx: number; ty: number; t: number; dur: number; arc: number };
-      c.t += dt / c.dur;
-      const t = Math.min(1, c.t);
-      const cx = (c.fx + c.tx) / 2;
-      const cy = (c.fy + c.ty) / 2 - c.arc;
-      const u = 1 - t;
-      S.bobber.x = u * u * c.fx + 2 * u * t * cx + t * t * c.tx;
-      S.bobber.y = u * u * c.fy + 2 * u * t * cy + t * t * c.ty;
-      S.lineSlack = 0.2;
-      S.bobberDip = 0;
-      if (t >= 1) {
-        S.bobber = { x: c.tx, y: c.ty };
-        S.bobberBase = { x: c.tx, y: c.ty };
-        addRipple(c.tx, c.ty, 46);
+      if (!p.cast) {
+        p.state = 'idle';
+        break;
+      }
+      p.cast.t += dt;
+      const k = Math.min(1, p.cast.t / p.cast.dur);
+      p.bobber.x = p.cast.fx + (p.cast.tx - p.cast.fx) * k;
+      p.bobber.y =
+        p.cast.fy + (p.cast.ty - p.cast.fy) * k - Math.sin(k * Math.PI) * p.cast.arc;
+      if (k >= 1) {
+        p.bobber.x = p.cast.tx;
+        p.bobber.y = p.cast.ty;
+        p.bobberBase = { x: p.cast.tx, y: p.cast.ty };
+        p.cast = null;
+        p.state = 'waiting';
+        p.stateT = 0;
+        p.bobberDip = 0;
+        scheduleBite(p);
+        addRipple(p, p.bobber.x, p.bobber.y, 26);
+        addSplash(p, p.bobber.x, p.bobber.y, 8);
         sfx.splash();
-        addSplash(c.tx, c.ty, 14);
-        S.state = 'waiting';
-        S.stateT = 0;
-        scheduleBite();
       }
       break;
     }
     case 'waiting': {
-      S.biteT -= dt;
-      S.bobber.x = S.bobberBase.x;
-      S.bobber.y = S.bobberBase.y + Math.sin(S.t * 2.3) * 3;
-      S.lineSlack = 0.5;
-      S.bobberDip = 0;
-      const f = S.fish;
-      if (f && S.biteT < 2.2) {
-        const dx = S.bobber.x - 10 - f.x;
-        const dy = S.bobber.y + 46 - f.y;
-        const d = Math.hypot(dx, dy) || 1;
-        const step = 75 * dt;
-        if (d > step) {
-          f.x += (dx / d) * step;
-          f.y += (dy / d) * step;
-        } else {
-          f.x = S.bobber.x - 10;
-          f.y = S.bobber.y + 46;
-        }
-        f.dir = dx >= 0 ? 1 : -1;
-      }
-      if (S.biteT <= 0) {
-        S.state = 'bite';
-        S.stateT = 0;
-        addRipple(S.bobber.x, S.bobber.y, 30);
-        sendHaptic(90);
+      if (Math.random() < dt * 0.7) addRipple(p, p.bobber.x, p.bobber.y, 16);
+      p.bobberDip = 0;
+      p.lineSlack = 0.5 + Math.sin(G.t * 1.3) * 0.05;
+      p.biteT -= dt;
+      if (p.biteT <= 0) {
+        p.state = 'bite';
+        p.stateT = 0;
         sfx.bite();
+        sendHaptic(p.id, 80);
       }
       break;
     }
     case 'bite': {
-      const k = Math.min(1, S.stateT / BITE_WINDOW);
-      S.bobberDip = Math.sin(Math.PI * k);
-      const f = S.fish;
-      if (f) {
-        f.x += (S.bobber.x - 12 - f.x) * Math.min(1, dt * 5);
-        f.y += (S.bobber.y + 40 - f.y) * Math.min(1, dt * 5);
-        f.dir = -1;
+      const t = p.stateT;
+      const dip = Math.max(0, Math.sin(t * 26)) * (14 + 10 * Math.min(1, t / BITE_WINDOW));
+      p.bobber.x = p.bobberBase.x + Math.sin(t * 30) * 3;
+      p.bobber.y = p.bobberBase.y + dip;
+      p.bobberDip = dip;
+      p.lineSlack = 0.06;
+      if (t < 0.5) {
+        for (let i = 0; i < 2; i++) {
+          p.particles.push({
+            x: p.bobber.x,
+            y: p.bobberBase.y,
+            vx: (Math.random() - 0.5) * 180,
+            vy: -(60 + Math.random() * 160),
+            t: 0,
+            ttl: 0.5 + Math.random() * 0.3,
+            size: 2 + Math.random() * 2.5,
+            color: 'rgba(220,240,255,0.9)',
+            kind: 'splash',
+          });
+        }
       }
-      if (S.stateT >= BITE_WINDOW) {
-        flash('It got away…');
-        S.fish = null;
-        S.state = 'waiting';
-        S.stateT = 0;
-        scheduleBite();
-      }
+      if (t < 0.4 && Math.random() < dt * 30) addRipple(p, p.bobber.x, p.bobberBase.y, 20);
+      p.rodShake = Math.min(1, t * 3);
+      if (t > BITE_WINDOW) doLose(p, 'Player ' + p.id + ': too slow — it got away');
       break;
     }
     case 'fight': {
-      const f = S.fish as ActiveFish;
-      S.burstT -= dt;
-      if (S.burstT <= 0) {
-        S.bursting = !S.bursting;
-        S.burstT = S.bursting ? 1.1 + Math.random() * 1.5 : 0.6 + Math.random() * 1.2;
-        if (S.bursting) {
-          addRipple(S.bobber.x, S.bobber.y, 26);
-          sendHaptic(70);
+      const f = p.fish as ActiveFish;
+      const r = clamp(input.v / MAX_CRANK_RAD_S, -1, 1);
+      p.reelR = clamp(r, 0, 1);
+      if (r > 0) {
+        p.crankAcc += r * dt;
+        while (p.crankAcc >= NOTCH_RAD) {
+          p.crankAcc -= NOTCH_RAD;
+          p.crankNotch += NOTCH_RAD;
+          sfx.reelTick();
         }
       }
-      const p = S.bursting
-        ? f.def.strength * (0.72 + 0.28 * Math.sin(S.stateT * 9 + f.phase))
-        : f.def.strength * 0.12;
-      const { v } = readInput();
-      const r = clamp(v / MAX_CRANK_RAD_S, 0, 1);
-      const lo = clamp(-v / MAX_CRANK_RAD_S, 0, 0.7);
-      // Reeling wins the fight, but the fish fights back: cranking raises line
-      // tension (especially on a hard pull), so ease off during a burst or the
-      // line snaps. Tuned so landing a fish takes real effort, not just mashing.
-      S.tension = clamp(S.tension + dt * (r * (0.3 + 0.75 * p) - 0.62 - 0.8 * lo), 0, 1);
-      S.progress = clamp(
-        S.progress + dt * (0.3 * r - 0.2 * p * (1 - 0.8 * r) - 0.1 * lo),
-        0,
-        1
-      );
-      // Ratchet sound: one click per 30° of forward crank, on the computer.
-      S.crankAcc += Math.max(0, v) * dt;
-      const notch = Math.floor(S.crankAcc / NOTCH_RAD);
-      if (notch > S.crankNotch) {
-        S.crankNotch = notch;
-        sfx.reelTick();
+      const lo = clamp(-r, 0, 1);
+      if (p.burstT > 0) p.burstT -= dt;
+      const burst = p.bursting || p.burstT > 0 ? 1 : 0;
+      f.phase += dt * (1.6 + 2.4 * burst);
+      f.x = p.bobberBase.x + Math.sin(f.phase) * (40 + 50 * burst);
+      f.y = p.bobberBase.y + 42 + Math.cos(f.phase * 1.7) * 12;
+
+      p.bobber.x = p.bobberBase.x + Math.sin(f.phase) * 6 + (burst ? Math.sin(G.t * 40) * 4 : 0);
+      p.bobber.y = p.bobberBase.y + 8 + Math.sin(f.phase * 1.3) * 3 + (burst ? 6 : 0);
+      p.bobberDip = 8;
+      p.lineSlack = 0.04 + (lo > 0.2 ? lo * 0.12 : 0);
+      p.rodShake = 0.25 + 0.45 * burst + (r > 0 ? 0.15 : 0);
+
+      const f2 = Math.min(1, p.stateT * 1.2);
+      const pull =
+        Math.max(0, Math.sin(f.phase * 0.9)) * (0.55 + 0.45 * f2) +
+        Math.max(0, Math.sin(f.phase * 2.3 + 1)) * 0.5 * f2;
+
+      p.tension += dt * (r * (0.3 + 0.75 * pull) - 0.62 - 0.8 * lo);
+      p.progress += dt * (0.3 * r - 0.2 * pull * (1 - 0.8 * r) - 0.1 * lo);
+      p.tension = clamp(p.tension, 0, 1);
+      p.progress = clamp(p.progress, 0, 1);
+
+      if (p.tension >= 1) {
+        addRipple(p, p.bobber.x, p.bobber.y, 30);
+        doLose(p, 'Player ' + p.id + ': line snapped!');
+        break;
       }
-      // Juice: a little camera shake while cranking (a bit more on a hard pull),
-      // and a rod tug when you're NOT reeling (scaled by line tension).
-      S.shake = clamp(0.4 * r + (S.bursting ? 0.4 * p : 0), 0, 1);
-      S.rodShake = r < 0.18 ? clamp(0.3 + 0.7 * S.tension + (S.bursting ? 0.5 * p : 0), 0, 1) : 0;
-      sfx.setReel(r);
-      S.bobber.x = S.bobberBase.x - (S.bursting ? p * 22 : 0);
-      S.bobber.y =
-        WATER_Y + 8 + (S.bursting ? 10 + 5 * Math.sin(S.stateT * 13) : 3 * Math.sin(S.stateT * 2.6));
-      S.bobberDip = S.bursting ? 0.45 + 0.5 * p : 0.12;
-      S.lineSlack = 0.04;
-      f.x = S.bobber.x - 44 - p * 24;
-      f.y = S.bobber.y + 50 + Math.sin(S.stateT * 7 + f.phase) * 8 * (0.25 + p);
-      f.dir = -1;
-      if (S.progress >= 1) {
-        doCatch();
-      } else if (S.tension >= 1) {
-        doLose('LINE SNAPPED!');
-      } else if (S.progress <= 0) {
-        doLose('It got away…');
+      if (Math.random() < dt * (1.5 + burst * 5)) addRipple(p, p.bobber.x, p.bobber.y, 18);
+      if (p.progress >= 1) doCatch(p);
+      else if (p.progress <= 0) {
+        addSplash(p, p.bobber.x, p.bobber.y, 10);
+        doLose(p, 'Player ' + p.id + ': it broke free');
+      }
+      break;
+    }
+    case 'caught': {
+      const tip = rodTip(p.rodAngle, L.pivot);
+      p.bobber.x = tip.x;
+      p.bobber.y = tip.y + 66;
+      p.bobberDip = 0;
+      // Auto-return so a phone that disconnects mid-celebration can't strand
+      // its player here forever.
+      if (p.stateT > 8) {
+        p.state = 'baiting';
+        p.stateT = 0;
       }
       break;
     }
     case 'lost': {
-      if (S.stateT >= 1.7) {
-        S.state = 'idle';
-        S.stateT = 0;
+      const tip = rodTip(p.rodAngle, L.pivot);
+      p.bobber.x = tip.x;
+      p.bobber.y = tip.y + 66;
+      p.bobberDip = 0;
+      // Brief "it got away" beat (shown as a flash on this screen), then back
+      // to idle so the phone can cast again without a tap.
+      if (p.stateT > 2.2) {
+        p.state = 'idle';
+        p.stateT = 0;
       }
       break;
     }
-    case 'caught':
-      break;
   }
 }
 
-// ---- Render ---------------------------------------------------------------------
+function update(dt: number): void {
+  G.t += dt;
+  for (const p of players) updatePlayer(p, dt);
+}
+
+// ---- Render --------------------------------------------------------------------
 function sceneView(): Scene {
   return {
-    t: S.t,
-    state: S.state,
-    rodAngle: S.rodAngle,
-    bobber: { ...S.bobber },
-    bobberDip: S.bobberDip,
-    lineSlack: S.lineSlack,
-    fish: null, // the hooked prey stays hidden until the catch reveal
-    ripples: S.ripples,
-    particles: S.particles,
-    shake: S.shake,
-    rodShake: S.rodShake,
-    tension: S.tension,
-    progress: S.progress,
-    points: S.points,
-    catchCount: S.catchCount,
-    lastName: S.lastName,
-    flash: S.flash,
-    flashT: S.flash ? Math.min(1, S.flashT) : 0,
+    t: G.t,
+    players: players.map((p) => ({
+      id: p.id,
+      color: p.layout.color,
+      state: p.state,
+      rodAngle: p.rodAngle,
+      bobber: { ...p.bobber },
+      bobberDip: p.bobberDip,
+      lineSlack: p.lineSlack,
+      ripples: p.ripples,
+      particles: p.particles,
+      rodShake: p.rodShake,
+      tension: p.tension,
+      progress: p.progress,
+      points: p.points,
+      catchCount: p.catchCount,
+      lastName: p.lastName,
+      flash: p.flash,
+      flashT: p.flash ? Math.min(1, p.flashT) : 0,
+      layout: p.layout,
+    })),
   };
+}
+
+function debugInfo(): void {
+  const desc = (id: PlayerId) => {
+    const p = players[id - 1];
+    return (
+      'P' +
+      id +
+      (p.connected ? '●' : '○') +
+      ' ' +
+      p.state +
+      (p.state === 'fight'
+        ? ' tens=' + p.tension.toFixed(2) + ' prog=' + p.progress.toFixed(2)
+        : '')
+    );
+  };
+  debugEl.textContent =
+    'T throw (cast / strike) · W/S crank · Space continue (P1 keys)\n' +
+    desc(1) + '   |   ' + desc(2) + '\n' +
+    'P1 frames=' + phones[1].frames + '  P2 frames=' + phones[2].frames;
 }
 
 let last = performance.now();
 function loop(now: number): void {
-  const dt = Math.min(0.033, (now - last) / 1000);
+  const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   update(dt);
+  sfx.setReel(Math.max(players[0].reelR, players[1].reelR));
   draw(ctx, sceneView());
+  debugInfo();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 
-// ---- WebRTC (initiator: computer) --------------------------------------------------
-function setStatus(text: string): void {
-  statusEl.textContent = text;
+// ---- Pairing: two independent links, one per player -----------------------------
+function makeRoom(): string {
+  const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 6; i++) s += a[(Math.random() * a.length) | 0];
+  return s;
 }
 
-// Loopback ICE candidates are useless to the remote peer and only bloat the
-// SDP that passes through the relay, so drop them before shipping it.
+// Drop loopback ICE candidates before shipping the offer through the relay.
 function trimSdp(sdp: string): string {
   return sdp
     .split('\n')
@@ -518,133 +604,173 @@ function trimSdp(sdp: string): string {
     .join('\n');
 }
 
-// The QR points straight at the controller page carrying just the room code.
-// Scanning it opens the right page; the two sides then rendezvous through the
-// /api/signal relay to finish the WebRTC handshake with no further input.
-function roomUrl(room: string): string {
-  return `${location.origin}/controller.html?room=${room}`;
-}
+// Create the game-side (offerer) peer for one player, publish the offer, then
+// resolve once the answer arrives and the data channel is open.
+function setupPlayerLink(id: PlayerId): Promise<void> {
+  const L = links[id];
+  L.pollAbort?.abort();
+  const abort = new AbortController();
+  L.pollAbort = abort;
+  const room = (L.room = makeRoom());
 
-// Short, unambiguous room code (no 0/O, 1/I/l) — enough for ephemeral rooms.
-const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-function makeRoom(): string {
-  const bytes = new Uint32Array(4);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (n) => ROOM_ALPHABET[n % ROOM_ALPHABET.length]).join('');
-}
-
-let room = '';
-let pollAbort: AbortController | null = null;
-
-async function startSession(): Promise<void> {
-  peer?.destroy();
-  peer = null;
-  pollAbort?.abort();
-  pollAbort = new AbortController();
-  room = makeRoom();
-
-  pairQR.classList.add('hidden');
-  roomCodeEl.textContent = room;
-  linkUrl.value = roomUrl(room);
-  qrHint.textContent = 'Generating the QR code…';
-  setStatus('Preparing pairing…');
-
-  const config = await fetchRtcConfig();
-  const p = createLink({
-    initiator: true,
-    config,
-    onSignal: (sig) => {
-      const s = sig as { type?: string; sdp?: string };
-      if (s?.type === 'offer' && s.sdp) {
-        void postSignal(room, 'offer', JSON.stringify({ type: s.type, sdp: trimSdp(s.sdp) })).then(
-          () => {
-            if (statusEl.textContent.startsWith('Preparing')) {
-              setStatus('Waiting for the phone to scan…');
-            }
-          }
-        );
-      }
-    },
-    onOpen: () => {
-      sfx.ensure();
-      pollAbort?.abort();
-      setStatus('Controller connected. Pick a bait on the phone to start.');
-      pairPanel.classList.add('hidden');
-      sendMsg(p, { kind: 'hello' });
-      resultOverlay.classList.add('hidden');
-      S.fish = null;
-      S.state = 'baiting';
-      S.stateT = 0;
-    },
-    onData: (m: Msg) => {
-      if (m.kind === 'ctrl') {
-        phone.x = m.x;
-        phone.y = m.y;
-        phone.v = m.v;
-        phone.frames += 1;
-        debugEl.textContent =
-          phone.frames + ' frames  x=' + m.x.toFixed(2) + ' y=' + m.y.toFixed(2) +
-          ' crank=' + m.v.toFixed(1);
-      } else if (m.kind === 'tap') {
-        handleTap();
-      } else if (m.kind === 'throw') {
-        handleThrow();
-      } else if (m.kind === 'bait') {
-        S.bait = m.id;
-        if (S.state === 'baiting') {
-          S.state = 'idle';
-          S.stateT = 0;
+  return fetchRtcConfig().then((config) => {
+    const peer = createLink({
+      initiator: true,
+      config,
+      onSignal: (sig) => {
+        const s = sig as { type?: string; sdp?: string };
+        if (s?.type === 'offer' && s.sdp) {
+          void postSignal(
+            room,
+            'offer',
+            JSON.stringify({ type: 'offer', sdp: trimSdp(s.sdp) })
+          ).catch(() => {});
         }
-      } else {
-        debugEl.textContent = 'got: ' + m.kind;
-      }
-    },
-    onClose: () => {
-      pairPanel.classList.remove('hidden');
-      setStatus('Controller disconnected. Use "New code" and pair again.');
-    },
-    onError: (e) => setStatus('Link error: ' + e.message),
+      },
+      onOpen: () => {
+        const p = players[id - 1];
+        p.connected = true;
+        updateStatus();
+      },
+      onData: (m) => handleData(id, m),
+      onClose: () => {
+        links[id].peer = null;
+        players[id - 1].connected = false;
+        phones[id].frames = 0;
+        phones[id].x = 0;
+        phones[id].y = 0;
+        phones[id].v = 0;
+        updateStatus();
+      },
+      onError: () => {},
+    });
+    L.peer = peer;
+    return waitForSignal(room, 'answer', abort.signal).then((answer) => {
+      if (abort.signal.aborted) throw new Error('aborted');
+      peer.signal(JSON.parse(answer));
+      return new Promise<void>((resolve, reject) => {
+        peer.on('connect', () => resolve());
+        peer.on('error', () => reject(new Error('connect failed')));
+      });
+    });
   });
-  peer = p;
-  if (location.search.includes('debug=1')) (window as Window & { __peer?: unknown }).__peer = p;
+}
 
-  // The QR is just the room URL — tiny and scans instantly.
-  void toDataURL(roomUrl(room), { errorCorrectionLevel: 'M', margin: 2, width: 320 })
-    .then((dataUrl) => {
-      pairQR.src = dataUrl;
-      pairQR.classList.remove('hidden');
-      qrHint.textContent = 'Scan with your phone — it connects automatically.';
-    })
-    .catch(() => {
-      qrHint.textContent = 'QR unavailable — use the code below or copy the URL.';
-    });
+function handleData(id: PlayerId, m: Msg): void {
+  if (m.kind === 'ctrl') {
+    const ph = phones[id];
+    ph.x = m.x;
+    ph.y = m.y;
+    ph.v = m.v;
+    ph.frames += 1;
+  } else if (m.kind === 'tap') {
+    handleTap(players[id - 1]);
+  } else if (m.kind === 'throw') {
+    handleThrow(players[id - 1]);
+  } else if (m.kind === 'bait') {
+    players[id - 1].bait = m.id;
+    handleTap(players[id - 1]);
+  }
+}
 
-  // Poll for the phone's answer, then complete the handshake.
-  void waitForSignal(room, 'answer', pollAbort.signal)
-    .then((answer) => {
-      peer?.signal(JSON.parse(answer));
-      setStatus('Connecting…');
-    })
-    .catch(() => {
-      // Aborted by a new session, or the page closed — nothing to do.
-    });
+function updateStatus(): void {
+  const c1 = players[0].connected;
+  const c2 = players[1].connected;
+  statusEl.textContent =
+    c1 && c2
+      ? 'Both players connected — happy fishing!'
+      : 'Waiting for players: ' + [c1 ? 'P1 ✓' : 'P1…', c2 ? 'P2 ✓' : 'P2…'].join('  ');
+  // Collapse the pairing panel to just the "New codes" button once both are in,
+  // so it stops covering the players' HUD corners.
+  pairPanel.classList.toggle('settled', c1 && c2);
+}
+
+function resetPlayers(): void {
+  for (const p of players) {
+    p.connected = false;
+    p.state = 'baiting';
+    p.stateT = 0;
+    p.aim = 0;
+    p.rodAngle = rodAngleFor(0, p.layout.side);
+    p.bobber = { x: 0, y: 0 };
+    p.bobberBase = { x: 0, y: 0 };
+    p.bobberDip = 0;
+    p.lineSlack = 0.55;
+    p.cast = null;
+    p.biteT = 0;
+    p.fish = null;
+    p.ripples = [];
+    p.particles = [];
+    p.bursting = false;
+    p.burstT = 0;
+    p.tension = 0;
+    p.progress = 0;
+    p.reelR = 0;
+    p.rodShake = 0;
+    p.crankAcc = 0;
+    p.crankNotch = 0;
+    p.flash = null;
+    p.flashT = 0;
+    p.points = 0;
+    p.catchCount = 0;
+    p.lastName = null;
+    p.bait = null;
+  }
+  phones[1] = { x: 0, y: 0, v: 0, frames: 0 };
+  phones[2] = { x: 0, y: 0, v: 0, frames: 0 };
+}
+
+function setPairUI(id: PlayerId): void {
+  const code = links[id].room;
+  const qrEl = $('pairQR' + id) as HTMLImageElement;
+  const urlEl = $('linkUrl' + id) as HTMLInputElement;
+  const url = location.origin + '/controller?room=' + code + '&p=' + id;
+  const display = 'https://' + location.host + '/controller?room=' + code + '&p=' + id;
+  (
+    $('roomCode' + id) as HTMLElement
+  ).textContent = code;
+  urlEl.value = display;
+  $('pairPanel').classList.remove('settled');
+  void toDataURL(url, { width: 280, margin: 1, errorCorrectionLevel: 'M' }).then((src) => {
+    qrEl.src = src;
+    (qrEl.parentElement as HTMLElement).classList.remove('hidden');
+  });
+}
+
+function startSession(): void {
+  resetPlayers();
+  for (const p of players) {
+    const L = links[p.id];
+    L.pollAbort?.abort();
+    L.peer = null;
+    L.room = '';
+  }
+  pairPanel.classList.remove('hidden');
+  qrHint.textContent =
+    'Player 1 (red) scans the left code · Player 2 (blue) scans the right.';
+  updateStatus();
+  for (const id of [1, 2] as PlayerId[]) {
+    setPairUI(id);
+    setupPlayerLink(id).catch(() => {});
+  }
 }
 
 newSessionBtn.addEventListener('click', () => {
-  void startSession();
+  sfx.ensure();
+  startSession();
 });
 
-copyUrlBtn.addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(linkUrl.value);
-    copyUrlBtn.textContent = 'Copied!';
-    setTimeout(() => (copyUrlBtn.textContent = 'Copy URL'), 1500);
-  } catch {
-    setStatus('Copy failed. Select the URL and copy manually.');
-  }
-});
+for (const id of [1, 2] as PlayerId[]) {
+  const btn = $('copyUrlBtn' + id) as HTMLButtonElement;
+  btn.addEventListener('click', () => {
+    const urlEl = $('linkUrl' + id) as HTMLInputElement;
+    void navigator.clipboard?.writeText(urlEl.value).catch(() => {});
+    btn.textContent = 'Copied';
+    window.setTimeout(() => {
+      btn.textContent = 'Copy';
+    }, 1400);
+  });
+}
 
-debugEl.textContent = 'A/D aim · W crank · S let out · T throw (cast / strike) · Space continue — or pair the phone';
-
-// Auto-start: the QR appears as soon as the page loads.
-void startSession();
+// Generate the QR codes as soon as the page loads.
+startSession();

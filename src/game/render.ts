@@ -1,29 +1,32 @@
 // Canvas renderer for the fishing scene. Pure drawing — all game state is
-// passed in via `Scene`. Tunable world constants live at the top.
+// passed in via `Scene`. Two players share one pond: P1 (red) on the left,
+// P2 (blue) on the right. Each has its own rod, bobber, fight and HUD on its
+// side of the screen; the sky, water and the water line are shared.
 
 export const W = 960;
 export const H = 600;
 export const WATER_Y = 238;
 
-// The rod is drawn from this pivot (just below the screen, bottom-right) so it
-// looks held in first person. ROD_LEN is the on-screen pivot-to-tip length.
-export const PIVOT = { x: 818, y: H + 26 };
+export type PlayerId = 1 | 2;
+
+// The rod is drawn from a per-player pivot (just below the screen) so it looks
+// held in first person. P1's pivot is bottom-left, P2's bottom-right.
 export const ROD_LEN = 470;
-// The rod art (766x1616) is assumed tip-up / grip-down. Flip these if the art
-// is oriented differently.
 export const ROD_TIP_UP = true;
-export const ROD_FH = false;
 
 export type GameState = 'baiting' | 'idle' | 'casting' | 'waiting' | 'bite' | 'fight' | 'caught' | 'lost';
 
-export interface FishView {
-  img: string;
-  x: number;
-  y: number;
-  size: number;
-  dir: 1 | -1;
-  alpha: number;
-  rot: number;
+// Fixed, per-player geometry: where the rod is gripped, which way it leans, the
+// stretch of water it can cast into, and which corner its HUD owns.
+export interface PlayerLayout {
+  id: PlayerId;
+  color: string; // accent (bobber + HUD)
+  pivot: { x: number; y: number };
+  side: 1 | -1; // +1 = right (P2), -1 = left (P1)
+  castMinX: number;
+  castMaxX: number;
+  align: 'left' | 'right';
+  hudX: number;
 }
 
 export interface Ripple {
@@ -45,18 +48,17 @@ export interface Particle {
   kind: 'splash' | 'sparkle';
 }
 
-export interface Scene {
-  t: number;
+export interface PlayerScene {
+  id: PlayerId;
+  color: string;
   state: GameState;
   rodAngle: number;
   bobber: { x: number; y: number };
   bobberDip: number; // 0..1, how far the bobber is pulled under
   lineSlack: number; // 0 (taut) .. 1 (saggy)
-  fish: FishView | null;
   ripples: Ripple[];
   particles: Particle[];
-  shake: number; // 0..1 camera-shake intensity (cranking + bursts)
-  rodShake: number; // 0..1 rod-tug intensity (the fish pulling while idle)
+  rodShake: number; // 0..1 rod-tug intensity (the fish pulling while not reeling)
   tension: number;
   progress: number;
   points: number;
@@ -64,19 +66,27 @@ export interface Scene {
   lastName: string | null;
   flash: string | null;
   flashT: number; // 0..1 life of the flash text
+  layout: PlayerLayout;
+}
+
+export interface Scene {
+  t: number;
+  players: PlayerScene[];
 }
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
-export function rodAngleFor(aimX: number): number {
-  // aim -1 (tilt left) = rod flat over the water, +1 (tilt right) = steep.
-  return deg(-112 + aimX * 38);
+export function rodAngleFor(aimX: number, side: 1 | -1): number {
+  // Right-side (P2) base: aim -1 = rod flat over the water, +1 = steep.
+  const base = deg(-112 + aimX * 38);
+  // Left-side (P1) is a horizontal mirror of the right side.
+  return side === 1 ? base : -base - Math.PI;
 }
 
-export function rodTip(rodAngle: number): { x: number; y: number } {
+export function rodTip(rodAngle: number, pivot: { x: number; y: number }): { x: number; y: number } {
   return {
-    x: PIVOT.x + Math.cos(rodAngle) * ROD_LEN,
-    y: PIVOT.y + Math.sin(rodAngle) * ROD_LEN,
+    x: pivot.x + Math.cos(rodAngle) * ROD_LEN,
+    y: pivot.y + Math.sin(rodAngle) * ROD_LEN,
   };
 }
 
@@ -86,28 +96,17 @@ export function setRodUrl(url: string): void {
 }
 
 export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
-  // Camera shake: a small, jittery translate during the fight (cranking and
-  // bursts rattle the view). The HUD is drawn afterwards, outside the shake.
-  let sx = 0;
-  let sy = 0;
-  if (s.shake > 0) {
-    sx = (Math.sin(s.t * 47) * 0.6 + Math.sin(s.t * 31 + 0.5) * 0.4) * s.shake * 6;
-    sy = (Math.sin(s.t * 41 + 1.3) * 0.6 + Math.sin(s.t * 27 + 0.7) * 0.4) * s.shake * 5;
-  }
-  ctx.save();
-  ctx.translate(sx, sy);
   drawSky(ctx, s.t);
   drawWater(ctx, s.t);
-  drawRipples(ctx, s.ripples);
-  // The hooked prey stays hidden — you won't know what you caught until the
-  // result reveal. No ambient/background fish are drawn in the water either.
-  drawParticles(ctx, s.particles);
-  const tip = rodTip(s.rodAngle);
-  drawLine(ctx, tip, s.bobber, s.lineSlack);
-  drawRod(ctx, s.rodAngle, s.t, s.rodShake);
-  drawBobber(ctx, s.bobber, s.bobberDip, s.t, s.state);
-  ctx.restore();
-  drawHud(ctx, s);
+  for (const p of s.players) {
+    drawRipples(ctx, p.ripples);
+    drawParticles(ctx, p.particles);
+    const tip = rodTip(p.rodAngle, p.layout.pivot);
+    drawLine(ctx, tip, p.bobber, p.lineSlack);
+    drawRod(ctx, p.rodAngle, s.t, p.rodShake, p.layout);
+    drawBobber(ctx, p.bobber, p.bobberDip, s.t, p.state, p.color);
+  }
+  for (const p of s.players) drawPlayerHud(ctx, s.t, p);
 }
 
 function drawSky(ctx: CanvasRenderingContext2D, t: number): void {
@@ -198,18 +197,19 @@ function drawLine(
   const sag = slack * 30 * (dist / 420);
   ctx.beginPath();
   ctx.moveTo(tip.x, tip.y);
-  ctx.quadraticCurveTo(
-    (tip.x + bobber.x) / 2,
-    (tip.y + bobber.y) / 2 + sag,
-    bobber.x,
-    bobber.y
-  );
+  ctx.quadraticCurveTo((tip.x + bobber.x) / 2, (tip.y + bobber.y) / 2 + sag, bobber.x, bobber.y);
   ctx.strokeStyle = 'rgba(226,240,255,0.7)';
   ctx.lineWidth = 1.4;
   ctx.stroke();
 }
 
-function drawRod(ctx: CanvasRenderingContext2D, angle: number, t: number, rodShake = 0): void {
+function drawRod(
+  ctx: CanvasRenderingContext2D,
+  angle: number,
+  t: number,
+  rodShake: number,
+  layout: PlayerLayout
+): void {
   const img = getImg(rodUrl);
   if (!img) return;
   const h = ROD_LEN;
@@ -219,9 +219,8 @@ function drawRod(ctx: CanvasRenderingContext2D, angle: number, t: number, rodSha
   const wiggle =
     rodShake > 0 ? (Math.sin(t * 33) * 0.6 + Math.sin(t * 19 + 0.9) * 0.4) * rodShake * 0.055 : 0;
   ctx.save();
-  ctx.translate(PIVOT.x, PIVOT.y);
+  ctx.translate(layout.pivot.x, layout.pivot.y);
   ctx.rotate(angle + Math.PI / 2 + wiggle);
-  if (ROD_FH) ctx.scale(-1, 1);
   if (!ROD_TIP_UP) ctx.scale(1, -1);
   ctx.drawImage(img, -w / 2, ROD_TIP_UP ? -h : 0, w, h);
   ctx.restore();
@@ -255,7 +254,8 @@ function drawBobber(
   pos: { x: number; y: number },
   dip: number,
   t: number,
-  state: GameState
+  state: GameState,
+  color: string
 ): void {
   const r = 9;
   const y = pos.y + dip * 11;
@@ -267,7 +267,7 @@ function drawBobber(
   ctx.fill();
   ctx.beginPath();
   ctx.arc(0, 0, r, Math.PI, Math.PI * 2);
-  ctx.fillStyle = '#e23b3b';
+  ctx.fillStyle = color;
   ctx.fill();
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -326,63 +326,81 @@ function bar(
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
-function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
-  ctx.textAlign = 'left';
+function hintText(state: GameState): string {
+  switch (state) {
+    case 'baiting':
+      return 'Pick a bait on your phone to start';
+    case 'idle':
+      return 'Throw the phone to cast';
+    case 'casting':
+      return '…';
+    case 'waiting':
+      return 'Waiting for a bite…';
+    case 'bite':
+      return 'STRIKE! Throw!';
+    case 'fight':
+      return 'CRANK! Spin the wheel';
+    default:
+      return '';
+  }
+}
+
+function drawPlayerHud(ctx: CanvasRenderingContext2D, t: number, p: PlayerScene): void {
+  const aRight = p.layout.align === 'right';
+  ctx.textAlign = aRight ? 'right' : 'left';
   ctx.textBaseline = 'alphabetic';
 
-  const hint =
-    s.state === 'baiting'
-      ? 'Pick a bait on your phone to start'
-      : s.state === 'idle'
-        ? 'Throw the phone (or press T) to cast'
-        : s.state === 'casting'
-          ? '…'
-          : s.state === 'waiting'
-            ? 'Waiting for a bite… throw to recast'
-            : s.state === 'bite'
-              ? 'STRIKE! Throw the phone!'
-              : s.state === 'fight'
-                ? 'CRANK! Spin the wheel on your phone — ease off when it pulls hard'
-                : '';
+  // Top: player label (colored) + score, in this player's corner.
+  ctx.font = '800 14px system-ui, sans-serif';
+  ctx.fillStyle = p.color;
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 5;
+  ctx.fillText(`PLAYER ${p.id}`, p.layout.hudX, 40);
+  ctx.shadowBlur = 0;
 
+  ctx.font = '600 14px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(226,236,250,0.9)';
+  const score =
+    `Points ${p.points} · Catches ${p.catchCount}` + (p.lastName ? ` · Last: ${p.lastName}` : '');
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 5;
+  ctx.fillText(score, p.layout.hudX, 60);
+  ctx.shadowBlur = 0;
+
+  // This player's hint.
+  const hint = hintText(p.state);
   if (hint) {
-    const strike = s.state === 'bite';
-    ctx.font = strike ? '800 26px system-ui, sans-serif' : '600 16px system-ui, sans-serif';
+    const strike = p.state === 'bite';
+    ctx.font = strike ? '800 24px system-ui, sans-serif' : '600 15px system-ui, sans-serif';
     ctx.fillStyle = strike
-      ? `rgba(255,221,87,${(0.75 + 0.25 * Math.sin(s.t * 16)).toFixed(3)})`
-      : 'rgba(226,236,250,0.9)';
+      ? `rgba(255,221,87,${(0.75 + 0.25 * Math.sin(t * 16)).toFixed(3)})`
+      : 'rgba(226,236,250,0.88)';
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
     ctx.shadowBlur = 6;
-    ctx.fillText(hint, 20, 66);
+    ctx.fillText(hint, p.layout.hudX, 88);
     ctx.shadowBlur = 0;
   }
 
-  ctx.font = '600 14px system-ui, sans-serif';
-  ctx.textAlign = 'right';
-  ctx.fillStyle = 'rgba(226,236,250,0.85)';
-  const top = `Points ${s.points}   ·   Catches ${s.catchCount}` + (s.lastName ? `   ·   Last: ${s.lastName}` : '');
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 5;
-  ctx.fillText(top, W - 20, 62);
-  ctx.shadowBlur = 0;
-  ctx.textAlign = 'left';
-
-  if (s.state === 'fight' || s.state === 'caught') {
-    bar(ctx, 20, H - 46, 300, 16, s.tension, 'LINE TENSION', ['#3ddc84', '#ffd94d', '#ff4d4d']);
-    bar(ctx, 340, H - 46, 300, 16, s.progress, 'LINE RECOVERED', ['#38bdf8', '#38bdf8', '#7dd3fc']);
+  // Fight bars on this player's side (stacked).
+  if (p.state === 'fight' || p.state === 'caught') {
+    const bw = 250;
+    const bx = aRight ? p.layout.hudX - bw : p.layout.hudX;
+    bar(ctx, bx, H - 74, bw, 14, p.tension, 'LINE TENSION', ['#3ddc84', '#ffd94d', '#ff4d4d']);
+    bar(ctx, bx, H - 44, bw, 14, p.progress, 'LINE RECOVERED', ['#38bdf8', '#38bdf8', '#7dd3fc']);
   }
 
-  if (s.flash && s.flashT > 0) {
-    const a = Math.min(1, s.flashT * 3) * Math.min(1, (1 - s.flashT) * 2.5);
+  // Flash (e.g. "It got away…") centered in this player's half.
+  if (p.flash && p.flashT > 0) {
+    const a = Math.min(1, p.flashT * 3) * Math.min(1, (1 - p.flashT) * 2.5);
     ctx.globalAlpha = Math.max(0, a);
-    ctx.font = '800 34px system-ui, sans-serif';
+    ctx.font = '800 30px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(0,0,0,0.65)';
     ctx.shadowBlur = 10;
-    ctx.fillText(s.flash, W / 2, H * 0.34);
+    ctx.fillText(p.flash, p.id === 1 ? W / 4 : (W * 3) / 4, H * 0.34);
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
-    ctx.textAlign = 'left';
+    ctx.textAlign = aRight ? 'right' : 'left';
   }
 }
