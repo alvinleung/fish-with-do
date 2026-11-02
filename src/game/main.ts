@@ -85,6 +85,9 @@ const LAYOUTS: PlayerLayout[] = [
 const BITE_WINDOW = 1.4; // seconds you have to strike
 const CAST_TIME = 0.8;
 const NOTCH_RAD = Math.PI / 6; // 30° — one ratchet click per this much crank
+// How much extra crank it takes to push the reeling hook to the top. >1 makes
+// reeling less sensitive: you have to turn the wheel more to move it up.
+const REEL_SENSITIVITY = 1.6;
 
 interface ActiveFish {
   def: CatchDef;
@@ -499,9 +502,9 @@ function updatePlayer(p: Player, dt: number): void {
       }
 
       // The reeling hook: your crank speed sets where it sits (0 = not turning,
-      // 1 = max crank). Smoothed hard so small speed wobbles don't yank it —
-      // easier to hold a steady line in the green.
-      const target = clamp(r, 0, 1);
+      // 1 = full crank). Scaled by REEL_SENSITIVITY so reeling is less sensitive
+      // (turn more to move it), and smoothed so speed wobbles don't yank it.
+      const target = clamp(input.v / (MAX_CRANK_RAD_S * REEL_SENSITIVITY), 0, 1);
       p.reelSpeed += (target - p.reelSpeed) * (1 - Math.exp(-dt * 5));
 
       // The sweet-spot band drifts up and down gently; harder fish move it a bit
@@ -534,7 +537,7 @@ function updatePlayer(p: Player, dt: number): void {
 
       p.bobber.x =
         p.bobberBase.x + Math.sin(f.phase) * 6 + (p.bursting ? Math.sin(G.t * 40) * 4 : 0);
-      p.bobber.y = p.bobberBase.y + 8 + Math.sin(f.phase * 1.3) * 3 + (p.bursting ? 6 : 0);
+      p.bobber.y = p.bobberBase.y + 6 + Math.sin(f.phase * 1.1) * 2 + (p.bursting ? 3 : 0);
       p.bobberDip = 8;
       p.lineSlack = 0.05 + (p.reelSpeed < 0.15 ? 0.1 : 0);
       p.rodShake = (inSpot ? 0.28 : 0.55) + (p.bursting ? 0.25 : 0) + (r > 0 ? 0.12 : 0);
@@ -593,7 +596,6 @@ function sceneView(): Scene {
       state: p.state,
       rodAngle: p.rodAngle,
       bobber: { ...p.bobber },
-      bobberDip: p.bobberDip,
       lineSlack: p.lineSlack,
       ripples: p.ripples,
       particles: p.particles,

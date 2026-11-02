@@ -54,7 +54,6 @@ export interface PlayerScene {
   state: GameState;
   rodAngle: number;
   bobber: { x: number; y: number };
-  bobberDip: number; // 0..1, how far the bobber is pulled under
   lineSlack: number; // 0 (taut) .. 1 (saggy)
   ripples: Ripple[];
   particles: Particle[];
@@ -108,7 +107,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
     const tip = rodTip(p.rodAngle, p.layout.pivot);
     drawLine(ctx, tip, p.bobber, p.lineSlack);
     drawRod(ctx, p.rodAngle, s.t, p.rodShake, p.layout);
-    drawBobber(ctx, p.bobber, p.bobberDip, s.t, p.state, p.color);
+    drawBobber(ctx, p.bobber, s.t, p.state, p.color);
   }
   for (const p of s.players) drawPlayerHud(ctx, s.t, p);
 }
@@ -256,13 +255,12 @@ function drawParticles(ctx: CanvasRenderingContext2D, parts: Particle[]): void {
 function drawBobber(
   ctx: CanvasRenderingContext2D,
   pos: { x: number; y: number },
-  dip: number,
   t: number,
   state: GameState,
   color: string
 ): void {
   const r = 9;
-  const y = pos.y + dip * 11;
+  const y = pos.y;
   ctx.save();
   ctx.translate(pos.x, y);
   ctx.beginPath();
