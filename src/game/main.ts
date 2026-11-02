@@ -89,7 +89,6 @@ const S = {
   burstT: 0,
   tension: 0,
   progress: 0,
-  reel: 0,
   crankAcc: 0,
   crankNotch: 0,
   flash: null as string | null,
@@ -304,10 +303,9 @@ function update(dt: number): void {
   for (const r of S.ripples) r.r += 55 * dt;
   S.ripples = S.ripples.filter((r) => r.r < r.max);
 
-  // Reset per-frame shake/reel (the fight case overrides them below).
+  // Reset per-frame shake (the fight case overrides it below).
   S.shake = 0;
   S.rodShake = 0;
-  S.reel = 0;
   sfx.setReel(0);
 
   // Particles: gravity on splash droplets; drop the expired ones.
@@ -421,14 +419,13 @@ function update(dt: number): void {
         : f.def.strength * 0.12;
       const { v } = readInput();
       const r = clamp(v / MAX_CRANK_RAD_S, 0, 1);
-      S.reel = r;
       const lo = clamp(-v / MAX_CRANK_RAD_S, 0, 0.7);
-      // Reeling wins the fight; the fish's hard pulls raise line tension, so you
-      // ease off (let a little line out) during a burst or it snaps. Tuned to be
-      // forgiving: steady cranking lands the fish, over-cranking can snap it.
+      // Reeling wins the fight, but the fish fights back: cranking raises line
+      // tension (especially on a hard pull), so ease off during a burst or the
+      // line snaps. Tuned so landing a fish takes real effort, not just mashing.
       S.tension = clamp(S.tension + dt * (r * (0.3 + 0.75 * p) - 0.62 - 0.8 * lo), 0, 1);
       S.progress = clamp(
-        S.progress + dt * (0.4 * r - 0.14 * p * (1 - 0.8 * r) - 0.1 * lo),
+        S.progress + dt * (0.3 * r - 0.2 * p * (1 - 0.8 * r) - 0.1 * lo),
         0,
         1
       );
@@ -489,7 +486,6 @@ function sceneView(): Scene {
     rodShake: S.rodShake,
     tension: S.tension,
     progress: S.progress,
-    reel: S.reel,
     points: S.points,
     catchCount: S.catchCount,
     lastName: S.lastName,
