@@ -230,18 +230,11 @@ permBtn.addEventListener('click', async () => {
     latest.x = s.x;
     latest.y = s.y;
   });
-  startThrowDetection(
-    () => {
-      buzz(40);
-      ratchetClick();
-      if (motionGranted && phoneState === 'fishing' && connected && peer) sendMsg(peer, { kind: 'throw' });
-    },
-    () => {
-      buzz(40);
-      ratchetClick();
-      if (motionGranted && phoneState === 'fishing' && connected && peer) sendMsg(peer, { kind: 'yank' });
-    }
-  );
+  startThrowDetection(() => {
+    buzz(40);
+    ratchetClick();
+    if (motionGranted && phoneState === 'fishing' && connected && peer) sendMsg(peer, { kind: 'throw' });
+  });
   void connect();
 });
 

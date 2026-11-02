@@ -4,14 +4,11 @@
 // One frame from the phone: tilt steering (x, y in -1..1) plus the crank
 // speed in rad/s (positive = cranking the reel forward).
 export type CtrlMsg = { kind: 'ctrl'; x: number; y: number; v: number };
-// Tap on the phone screen: continue / proceed (not cast or strike — those are
-// physical motions: throw and yank).
+// Tap on the phone screen: continue / proceed.
 export type TapMsg = { kind: 'tap' };
-// A physical throw flick of the phone (tossed away): cast with full power.
+// A physical throw flick of the phone: the one big gesture. The game casts with
+// full power when the line is in, or sets the hook when the fish is biting.
 export type ThrowMsg = { kind: 'throw' };
-// A physical yank of the phone (pulled back toward you): sets the hook on a
-// bite. The opposite flick of a throw.
-export type YankMsg = { kind: 'yank' };
 // Game -> phone: vibrate for ms (or a pattern). No-op where unsupported.
 export type HapticMsg = { kind: 'haptic'; ms: number | number[] };
 export type HelloMsg = { kind: 'hello' };
@@ -21,7 +18,7 @@ export type BaitMsg = { kind: 'bait'; id: string };
 // Game -> phone: a catch landed; the phone shows it in the success state. Only
 // id + size cross the wire — the phone looks the rest up in the shared table.
 export type CatchMsg = { kind: 'catch'; id: string; size: number };
-export type Msg = CtrlMsg | TapMsg | ThrowMsg | YankMsg | HapticMsg | HelloMsg | BaitMsg | CatchMsg;
+export type Msg = CtrlMsg | TapMsg | ThrowMsg | HapticMsg | HelloMsg | BaitMsg | CatchMsg;
 
 // How many degrees of phone tilt map to a full deflection (-1..1).
 export const MAX_TILT_DEG = 30;
