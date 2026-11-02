@@ -4,6 +4,7 @@ import { postSignal, waitForSignal } from '../shared/signal';
 import { requestMotionPermission, startTilt } from '../shared/tilt';
 import { startThrowDetection } from '../shared/throw';
 import type { Msg } from '../shared/protocol';
+import { SEND_INTERVAL_MS } from '../shared/protocol';
 import { BAITS, catchById } from '../shared/catches';
 import reelBgUrl from '../assets/wheel-spinning-bg.png';
 import reelFgUrl from '../assets/wheel-spinning-fg.png';
@@ -149,6 +150,16 @@ function reelLoop(now: number): void {
 }
 requestAnimationFrame(reelLoop);
 
+// Stream control to the game on a fixed ~30 Hz cadence. Cranking (latest.v) is a
+// touch gesture on the wheel and must keep flowing even when the phone is held
+// perfectly still, so it can't ride on deviceorientation (which only fires when
+// the phone moves) — that coupling is why the crank used to never register.
+setInterval(() => {
+  if (motionGranted && phoneState === 'fishing' && connected && peer) {
+    sendMsg(peer, { kind: 'ctrl', x: latest.x, y: latest.y, v: latest.v });
+  }
+}, SEND_INTERVAL_MS);
+
 reelEl.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   reelEl.setPointerCapture(e.pointerId);
@@ -218,9 +229,6 @@ permBtn.addEventListener('click', async () => {
   startTilt((s) => {
     latest.x = s.x;
     latest.y = s.y;
-    if (motionGranted && phoneState === 'fishing' && connected && peer) {
-      sendMsg(peer, { kind: 'ctrl', x: s.x, y: s.y, v: latest.v });
-    }
   });
   startThrowDetection(() => {
     buzz(40);

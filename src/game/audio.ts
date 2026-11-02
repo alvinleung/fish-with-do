@@ -65,8 +65,28 @@ export function setReel(level: number): void {
   if (!actx || !reelGain || !reelFilter) return;
   const t = actx.currentTime;
   const g = Math.max(0, Math.min(1, level));
-  reelGain.gain.setTargetAtTime(g * 0.22, t, 0.05);
-  reelFilter.frequency.setTargetAtTime(900 + g * 1800, t, 0.05);
+  reelGain.gain.setTargetAtTime(g * 0.16, t, 0.04);
+  reelFilter.frequency.setTargetAtTime(750 + g * 1500, t, 0.04);
+}
+
+// One ratchet "clack" of the reel — fired by the game per crank notch so the
+// computer speaker clicks in time with the phone wheel's ratchet.
+export function reelTick(): void {
+  if (!actx || !noise) return;
+  const t = actx.currentTime;
+  const src = actx.createBufferSource();
+  src.buffer = noise;
+  const f = actx.createBiquadFilter();
+  f.type = 'bandpass';
+  f.frequency.value = 1900;
+  f.Q.value = 1.2;
+  const g = actx.createGain();
+  g.gain.setValueAtTime(0.34, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+  src.connect(f);
+  f.connect(g);
+  g.connect(actx.destination);
+  src.start(t, Math.random() * 0.03, 0.05);
 }
 
 function blip(freq: number, dur: number, type: OscillatorType, vol: number, slideTo?: number): void {

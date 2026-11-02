@@ -57,6 +57,7 @@ setRodUrl(rodImgUrl);
 // ---- Game state ------------------------------------------------------------
 const BITE_WINDOW = 1.4; // seconds you have to strike
 const CAST_TIME = 0.8;
+const NOTCH_RAD = Math.PI / 6; // 30° — one ratchet click per this much crank
 
 interface ActiveFish {
   def: CatchDef;
@@ -88,6 +89,8 @@ const S = {
   burstT: 0,
   tension: 0,
   progress: 0,
+  crankAcc: 0,
+  crankNotch: 0,
   flash: null as string | null,
   flashT: 0,
   points: 0,
@@ -265,6 +268,8 @@ function handleTap(): void {
     S.progress = 0.15;
     S.bursting = false;
     S.burstT = 0.7;
+    S.crankAcc = 0;
+    S.crankNotch = 0;
     addRipple(S.bobber.x, S.bobber.y, 34);
   } else if (S.state === 'caught') {
     // Proceed past the catch reveal — re-bait before the next cast.
@@ -410,12 +415,22 @@ function update(dt: number): void {
       const { v } = readInput();
       const r = clamp(v / MAX_CRANK_RAD_S, 0, 1);
       const lo = clamp(-v / MAX_CRANK_RAD_S, 0, 0.7);
-      S.tension = clamp(S.tension + dt * (r * (0.55 + 1.35 * p) - 0.85 - 0.9 * lo), 0, 1);
+      // Reeling wins the fight; the fish's hard pulls raise line tension, so you
+      // ease off (let a little line out) during a burst or it snaps. Tuned to be
+      // forgiving: steady cranking lands the fish, over-cranking can snap it.
+      S.tension = clamp(S.tension + dt * (r * (0.3 + 0.75 * p) - 0.62 - 0.8 * lo), 0, 1);
       S.progress = clamp(
-        S.progress + dt * (0.2 * r - 0.24 * p * (1 - 0.7 * r) - 0.13 * lo),
+        S.progress + dt * (0.4 * r - 0.14 * p * (1 - 0.8 * r) - 0.1 * lo),
         0,
         1
       );
+      // Ratchet sound: one click per 30° of forward crank, on the computer.
+      S.crankAcc += Math.max(0, v) * dt;
+      const notch = Math.floor(S.crankAcc / NOTCH_RAD);
+      if (notch > S.crankNotch) {
+        S.crankNotch = notch;
+        sfx.reelTick();
+      }
       // Juice: a little camera shake while cranking (a bit more on a hard pull),
       // and a rod tug when you're NOT reeling (scaled by line tension).
       S.shake = clamp(0.4 * r + (S.bursting ? 0.4 * p : 0), 0, 1);
