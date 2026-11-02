@@ -4,6 +4,7 @@ import { postSignal, waitForSignal } from '../shared/signal';
 import { requestMotionPermission, startTilt } from '../shared/tilt';
 import { startThrowDetection } from '../shared/throw';
 import type { Msg } from '../shared/protocol';
+import { BAITS, catchById } from '../shared/catches';
 import reelBgUrl from '../assets/wheel-spinning-bg.png';
 import reelFgUrl from '../assets/wheel-spinning-fg.png';
 import './style.css';
@@ -19,6 +20,13 @@ const statusEl = $('status');
 const reelEl = $('reel') as HTMLElement;
 const reelBgEl = $('reelBg') as HTMLImageElement;
 const reelFgEl = $('reelFg') as HTMLImageElement;
+const baitView = $('baitView');
+const baitGrid = $('baitGrid');
+const catchView = $('catchView');
+const catchImg = $('catchImg') as HTMLImageElement;
+const catchName = $('catchName');
+const catchDetail = $('catchDetail');
+const proceedBtn = $('proceedBtn') as HTMLButtonElement;
 
 reelBgEl.src = reelBgUrl;
 reelFgEl.src = reelFgUrl;
@@ -30,6 +38,12 @@ let peer: Peer | null = null;
 let motionGranted = false;
 let connected = false;
 const roomCode = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+// Which screen the phone is showing. Only 'fishing' (the wheel) streams control
+// to the game; 'bait' and 'catch' are the other two states of the loop.
+let phoneState: 'bait' | 'fishing' | 'catch' = 'bait';
+// The last bait the user chose, re-sent when the link opens (in case they
+// picked it before the WebRTC data channel was ready).
+let pendingBait: string | null = null;
 
 // ---- Haptics + ratchet sound --------------------------------------------------
 // iPhones cannot vibrate from the web (Safari has no Vibration API), so every
@@ -172,7 +186,7 @@ function endPointer(e: PointerEvent): void {
   const dur = performance.now() - downAt;
   if (!cranking && dur < TAP_MAX_MS) {
     buzz(10);
-    if (motionGranted && connected && peer) sendMsg(peer, { kind: 'tap' });
+    if (motionGranted && phoneState === 'fishing' && connected && peer) sendMsg(peer, { kind: 'tap' });
     reelEl.classList.remove('tapped');
     void reelEl.offsetWidth;
     reelEl.classList.add('tapped');
@@ -198,21 +212,67 @@ permBtn.addEventListener('click', async () => {
     return;
   }
   motionGranted = true;
+  phoneState = 'bait';
   perm.classList.add('hidden');
-  wheelView.classList.remove('hidden');
+  baitView.classList.remove('hidden');
   startTilt((s) => {
     latest.x = s.x;
     latest.y = s.y;
-    if (motionGranted && connected && peer) {
+    if (motionGranted && phoneState === 'fishing' && connected && peer) {
       sendMsg(peer, { kind: 'ctrl', x: s.x, y: s.y, v: latest.v });
     }
   });
   startThrowDetection(() => {
     buzz(40);
     ratchetClick();
-    if (motionGranted && connected && peer) sendMsg(peer, { kind: 'throw' });
+    if (motionGranted && phoneState === 'fishing' && connected && peer) sendMsg(peer, { kind: 'throw' });
   });
   void connect();
+});
+
+// ---- Bait select + catch reveal -------------------------------------------
+// The phone drives the bait-select -> fishing -> catch loop. Picking a bait
+// tells the game to start; when a catch lands the game sends it back and the
+// phone shows it before the user proceeds (and re-baits) again.
+for (const b of BAITS) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'bait';
+  const img = document.createElement('img');
+  img.src = b.img;
+  img.alt = '';
+  const label = document.createElement('span');
+  label.textContent = b.name;
+  btn.appendChild(img);
+  btn.appendChild(label);
+  btn.addEventListener('click', () => {
+    pendingBait = b.id;
+    if (motionGranted && connected && peer) sendMsg(peer, { kind: 'bait', id: b.id });
+    phoneState = 'fishing';
+    baitView.classList.add('hidden');
+    wheelView.classList.remove('hidden');
+  });
+  baitGrid.appendChild(btn);
+}
+
+function showCatch(id: string, size: number): void {
+  const c = catchById(id);
+  catchImg.src = c.img;
+  catchName.textContent = c.kind === 'junk' ? `Junk: ${c.name}` : c.name;
+  catchDetail.textContent =
+    c.kind === 'junk'
+      ? `${size} ${c.sizeUnit} — keep the water clean`
+      : `${size} ${c.sizeUnit} · ${c.points} pts`;
+  phoneState = 'catch';
+  wheelView.classList.add('hidden');
+  catchView.classList.remove('hidden');
+}
+
+proceedBtn.addEventListener('click', () => {
+  if (motionGranted && connected && peer) sendMsg(peer, { kind: 'tap' });
+  phoneState = 'bait';
+  catchView.classList.add('hidden');
+  baitView.classList.remove('hidden');
 });
 
 // Drop loopback ICE candidates before shipping the answer through the relay.
@@ -236,9 +296,13 @@ async function connect(): Promise<void> {
     },
     onOpen: () => {
       connected = true;
+      // If a bait was chosen before the link opened, deliver it now so the
+      // game leaves its "pick a bait" state.
+      if (pendingBait && peer) sendMsg(peer, { kind: 'bait', id: pendingBait });
     },
     onData: (m: Msg) => {
       if (m.kind === 'haptic') buzz(m.ms);
+      else if (m.kind === 'catch') showCatch(m.id, m.size);
     },
     onClose: () => {
       connected = false;

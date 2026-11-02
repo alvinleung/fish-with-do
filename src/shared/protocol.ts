@@ -11,7 +11,13 @@ export type ThrowMsg = { kind: 'throw' };
 // Game -> phone: vibrate for ms (or a pattern). No-op where unsupported.
 export type HapticMsg = { kind: 'haptic'; ms: number | number[] };
 export type HelloMsg = { kind: 'hello' };
-export type Msg = CtrlMsg | TapMsg | ThrowMsg | HapticMsg | HelloMsg;
+// Phone -> game: the user picked a bait. Cosmetic for now, but it gates the
+// bait-select -> fishing transition.
+export type BaitMsg = { kind: 'bait'; id: string };
+// Game -> phone: a catch landed; the phone shows it in the success state. Only
+// id + size cross the wire — the phone looks the rest up in the shared table.
+export type CatchMsg = { kind: 'catch'; id: string; size: number };
+export type Msg = CtrlMsg | TapMsg | ThrowMsg | HapticMsg | HelloMsg | BaitMsg | CatchMsg;
 
 // How many degrees of phone tilt map to a full deflection (-1..1).
 export const MAX_TILT_DEG = 30;

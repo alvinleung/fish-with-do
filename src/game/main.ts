@@ -4,7 +4,7 @@ import { createLink, sendMsg, fetchRtcConfig } from '../shared/link';
 import { postSignal, waitForSignal } from '../shared/signal';
 import type { Msg } from '../shared/protocol';
 import { MAX_CRANK_RAD_S, clamp } from '../shared/protocol';
-import { CATCHES, pickCatch, randomSize, type CatchDef } from './fish';
+import { pickCatch, randomSize, type CatchDef } from '../shared/catches';
 import {
   W,
   H,
@@ -15,7 +15,6 @@ import {
   setRodUrl,
   type GameState,
   type Scene,
-  type FishView,
   type Ripple,
   type Particle,
 } from './render';
@@ -68,17 +67,6 @@ interface ActiveFish {
   phase: number;
 }
 
-interface AmbientFish {
-  img: string;
-  x: number;
-  y: number;
-  baseY: number;
-  size: number;
-  dir: 1 | -1;
-  speed: number;
-  phase: number;
-}
-
 const S = {
   t: 0,
   state: 'idle' as GameState,
@@ -92,7 +80,6 @@ const S = {
   cast: null as null | { fx: number; fy: number; tx: number; ty: number; t: number; dur: number; arc: number },
   biteT: 0,
   fish: null as ActiveFish | null,
-  ambient: [] as AmbientFish[],
   ripples: [] as Ripple[],
   particles: [] as Particle[],
   shake: 0,
@@ -106,25 +93,8 @@ const S = {
   points: 0,
   catchCount: 0,
   lastName: null as string | null,
+  bait: null as string | null,
 };
-
-function spawnAmbient(): void {
-  const fishDefs = CATCHES.filter((c) => c.kind === 'fish');
-  S.ambient = Array.from({ length: 3 }, (_, i) => {
-    const def = fishDefs[(i + Math.floor(Math.random() * fishDefs.length)) % fishDefs.length];
-    const baseY = WATER_Y + 70 + Math.random() * (H - WATER_Y - 130);
-    return {
-      img: def.img,
-      x: Math.random() * W,
-      y: baseY,
-      baseY,
-      size: 34 + Math.random() * 26,
-      dir: Math.random() < 0.5 ? 1 : -1,
-      speed: 18 + Math.random() * 26,
-      phase: Math.random() * 6.28,
-    };
-  });
-}
 
 function addRipple(x: number, y: number, max: number): void {
   S.ripples.push({ x, y, r: 5, max });
@@ -249,6 +219,7 @@ function doCatch(): void {
   S.state = 'caught';
   S.stateT = 0;
   sendHaptic([60, 90, 60]);
+  if (peer) sendMsg(peer, { kind: 'catch', id: f.def.id, size: f.size });
   sfx.catchFish();
   addSparkle(S.bobber.x, S.bobber.y, 26);
   resultImg.src = f.def.img;
@@ -280,7 +251,12 @@ function handleThrow(): void {
 
 function handleTap(): void {
   sfx.ensure();
-  if (S.state === 'idle') {
+  if (S.state === 'baiting') {
+    // Desktop fallback (no phone): pick the default bait and start fishing.
+    S.bait = S.bait ?? 'worm';
+    S.state = 'idle';
+    S.stateT = 0;
+  } else if (S.state === 'idle') {
     startCast();
   } else if (S.state === 'bite') {
     S.state = 'fight';
@@ -290,8 +266,12 @@ function handleTap(): void {
     S.bursting = false;
     S.burstT = 0.7;
     addRipple(S.bobber.x, S.bobber.y, 34);
-  } else if (S.state === 'lost' || S.state === 'caught') {
+  } else if (S.state === 'caught') {
+    // Proceed past the catch reveal — re-bait before the next cast.
     resultOverlay.classList.add('hidden');
+    S.state = 'baiting';
+    S.stateT = 0;
+  } else if (S.state === 'lost') {
     S.state = 'idle';
     S.stateT = 0;
   }
@@ -328,18 +308,12 @@ function update(dt: number): void {
   S.particles = S.particles.filter((p) => p.t < p.ttl);
   if (S.particles.length > 200) S.particles.splice(0, S.particles.length - 200);
 
-  for (const a of S.ambient) {
-    a.x += a.dir * a.speed * dt;
-    if (a.x < -60) a.x = W + 50;
-    if (a.x > W + 60) a.x = -50;
-    a.y = a.baseY + Math.sin(S.t * 0.8 + a.phase) * 6;
-  }
-
   const input = readInput();
   S.aim += (input.x - S.aim) * (1 - Math.exp(-dt * 6));
   S.rodAngle += (rodAngleFor(S.aim) - S.rodAngle) * (1 - Math.exp(-dt * 7));
 
   switch (S.state) {
+    case 'baiting':
     case 'idle': {
       const tip = rodTip(S.rodAngle);
       S.bobber.x = tip.x;
@@ -478,15 +452,6 @@ function update(dt: number): void {
 
 // ---- Render ---------------------------------------------------------------------
 function sceneView(): Scene {
-  const ambient: FishView[] = S.ambient.map((a) => ({
-    img: a.img,
-    x: a.x,
-    y: a.y,
-    size: a.size,
-    dir: a.dir,
-    alpha: 0.5,
-    rot: Math.sin(S.t + a.phase) * 0.07,
-  }));
   return {
     t: S.t,
     state: S.state,
@@ -495,7 +460,6 @@ function sceneView(): Scene {
     bobberDip: S.bobberDip,
     lineSlack: S.lineSlack,
     fish: null, // the hooked prey stays hidden until the catch reveal
-    ambient,
     ripples: S.ripples,
     particles: S.particles,
     shake: S.shake,
@@ -584,12 +548,12 @@ async function startSession(): Promise<void> {
     onOpen: () => {
       sfx.ensure();
       pollAbort?.abort();
-      setStatus('Controller connected. Lean to aim, flick to throw, spin the wheel to crank!');
+      setStatus('Controller connected. Pick a bait on the phone to start.');
       pairPanel.classList.add('hidden');
       sendMsg(p, { kind: 'hello' });
       resultOverlay.classList.add('hidden');
       S.fish = null;
-      S.state = 'idle';
+      S.state = 'baiting';
       S.stateT = 0;
     },
     onData: (m: Msg) => {
@@ -605,6 +569,12 @@ async function startSession(): Promise<void> {
         handleTap();
       } else if (m.kind === 'throw') {
         handleThrow();
+      } else if (m.kind === 'bait') {
+        S.bait = m.id;
+        if (S.state === 'baiting') {
+          S.state = 'idle';
+          S.stateT = 0;
+        }
       } else {
         debugEl.textContent = 'got: ' + m.kind;
       }
@@ -654,8 +624,7 @@ copyUrlBtn.addEventListener('click', async () => {
   }
 });
 
-spawnAmbient();
-  debugEl.textContent = 'A/D aim · W crank · S let out · T throw · Space tap — or pair the phone';
+debugEl.textContent = 'A/D aim · W crank · S let out · T throw · Space tap — or pair the phone';
 
 // Auto-start: the QR appears as soon as the page loads.
 void startSession();

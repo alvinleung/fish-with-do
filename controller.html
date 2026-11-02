@@ -7,7 +7,7 @@
   </head>
   <body>
     <div id="app">
-      <!-- Screen 1: motion permission prompt (shown until motion is granted) -->
+      <!-- Screen: motion permission prompt (shown until motion is granted) -->
       <div id="perm" class="screen">
         <h1>Fish With Do</h1>
         <p class="perm-sub">
@@ -18,12 +18,26 @@
         <p id="permNote" class="hint"></p>
       </div>
 
-      <!-- Screen 2: just the wheel (shown once motion is granted) -->
+      <!-- Screen: pick a bait (start of each round; re-bait after every catch) -->
+      <div id="baitView" class="screen hidden">
+        <h2>Choose your bait</h2>
+        <div id="baitGrid"></div>
+      </div>
+
+      <!-- Screen: fishing — just the wheel -->
       <div id="wheelView" class="screen hidden">
         <div id="reel">
           <img id="reelBg" alt="" />
           <img id="reelFg" alt="" />
         </div>
+      </div>
+
+      <!-- Screen: catch reveal — the landed catch, shown before proceeding -->
+      <div id="catchView" class="screen hidden">
+        <img id="catchImg" alt="" />
+        <div id="catchName"></div>
+        <div id="catchDetail"></div>
+        <button id="proceedBtn" class="primary">Cast again</button>
       </div>
 
       <!-- Kept hidden; shown only for edge cases (e.g. opened without a room) -->

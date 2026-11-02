@@ -14,7 +14,7 @@ export const ROD_LEN = 470;
 export const ROD_TIP_UP = true;
 export const ROD_FH = false;
 
-export type GameState = 'idle' | 'casting' | 'waiting' | 'bite' | 'fight' | 'caught' | 'lost';
+export type GameState = 'baiting' | 'idle' | 'casting' | 'waiting' | 'bite' | 'fight' | 'caught' | 'lost';
 
 export interface FishView {
   img: string;
@@ -53,7 +53,6 @@ export interface Scene {
   bobberDip: number; // 0..1, how far the bobber is pulled under
   lineSlack: number; // 0 (taut) .. 1 (saggy)
   fish: FishView | null;
-  ambient: FishView[];
   ripples: Ripple[];
   particles: Particle[];
   shake: number; // 0..1 camera-shake intensity (cranking + bursts)
@@ -100,9 +99,8 @@ export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
   drawSky(ctx, s.t);
   drawWater(ctx, s.t);
   drawRipples(ctx, s.ripples);
-  for (const f of s.ambient) drawFish(ctx, f);
   // The hooked prey stays hidden — you won't know what you caught until the
-  // result reveal. Only background (ambient) fish are shown.
+  // result reveal. No ambient/background fish are drawn in the water either.
   drawParticles(ctx, s.particles);
   const tip = rodTip(s.rodAngle);
   drawLine(ctx, tip, s.bobber, s.lineSlack);
@@ -240,19 +238,6 @@ function getImg(url: string): HTMLImageElement | null {
   return img.complete && img.naturalWidth > 0 ? img : null;
 }
 
-function drawFish(ctx: CanvasRenderingContext2D, f: FishView): void {
-  const img = getImg(f.img);
-  if (!img) return;
-  ctx.save();
-  ctx.translate(f.x, f.y);
-  ctx.rotate(f.rot);
-  ctx.scale(f.dir, 1);
-  ctx.globalAlpha = f.alpha;
-  ctx.drawImage(img, -f.size / 2, -f.size / 2, f.size, f.size);
-  ctx.restore();
-  ctx.globalAlpha = 1;
-}
-
 function drawParticles(ctx: CanvasRenderingContext2D, parts: Particle[]): void {
   for (const p of parts) {
     const a = Math.max(0, 1 - p.t / p.ttl);
@@ -346,17 +331,19 @@ function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
   ctx.textBaseline = 'alphabetic';
 
   const hint =
-    s.state === 'idle'
-      ? 'Flick the phone to throw (or Space) to cast'
-      : s.state === 'casting'
-        ? '…'
-        : s.state === 'waiting'
-          ? 'Waiting for a bite… flick to recast'
-          : s.state === 'bite'
-            ? 'STRIKE! Tap now!'
-            : s.state === 'fight'
-              ? 'CRANK! Spin the wheel on your phone — ease off when it pulls hard'
-              : '';
+    s.state === 'baiting'
+      ? 'Pick a bait on your phone to start'
+      : s.state === 'idle'
+        ? 'Flick the phone to throw (or Space) to cast'
+        : s.state === 'casting'
+          ? '…'
+          : s.state === 'waiting'
+            ? 'Waiting for a bite… flick to recast'
+            : s.state === 'bite'
+              ? 'STRIKE! Tap now!'
+              : s.state === 'fight'
+                ? 'CRANK! Spin the wheel on your phone — ease off when it pulls hard'
+                : '';
 
   if (hint) {
     const strike = s.state === 'bite';
