@@ -308,8 +308,8 @@ function doStrike(p: Player): void {
   p.stateT = 0;
   p.reelSpeed = 0.5;
   p.bandCenter = 0.5;
-  // Harder fish get a tighter band that's harder to hold.
-  p.bandHalf = clamp(0.17 - strength * 0.08, 0.08, 0.2);
+  // Harder fish get a slightly tighter band, but kept wide enough to be forgiving.
+  p.bandHalf = clamp(0.2 - strength * 0.05, 0.14, 0.22);
   p.bandSeed = Math.random() * Math.PI * 2;
   p.inSpot = true;
   p.progress = 0.32;
@@ -499,22 +499,23 @@ function updatePlayer(p: Player, dt: number): void {
       }
 
       // The reeling hook: your crank speed sets where it sits (0 = not turning,
-      // 1 = max crank). Smoothed so it tracks the wheel like a spool with weight.
+      // 1 = max crank). Smoothed hard so small speed wobbles don't yank it —
+      // easier to hold a steady line in the green.
       const target = clamp(r, 0, 1);
-      p.reelSpeed += (target - p.reelSpeed) * (1 - Math.exp(-dt * 9));
+      p.reelSpeed += (target - p.reelSpeed) * (1 - Math.exp(-dt * 5));
 
-      // The sweet-spot band drifts up and down; harder fish move it faster.
-      // Eased in over the first second so a fresh hook isn't instantly punished.
-      const sp = 0.9 + strength * 1.1;
+      // The sweet-spot band drifts up and down gently; harder fish move it a bit
+      // faster. Eased in over the first second so a fresh hook isn't punished.
+      const sp = 0.7 + strength * 0.7;
       const t = p.stateT;
-      const ramp = Math.min(1, t * 1.2);
+      const ramp = Math.min(1, t * 1.5);
       const wave =
         0.5 +
         ramp *
-          (0.3 * Math.sin(t * 1.4 * sp + p.bandSeed) +
-            0.14 * Math.sin(t * 2.7 * sp + p.bandSeed * 2.3) +
-            (p.bursting ? 0.22 * Math.sin(t * 6.5 * sp + p.bandSeed) : 0));
-      p.bandCenter = clamp(wave, 0.06, 0.94);
+          (0.32 * Math.sin(t * 1.0 * sp + p.bandSeed) +
+            0.07 * Math.sin(t * 1.9 * sp + p.bandSeed * 2.3) +
+            (p.bursting ? 0.12 * Math.sin(t * 3.4 * sp + p.bandSeed) : 0));
+      p.bandCenter = clamp(wave, 0.08, 0.92);
 
       const inSpot = Math.abs(p.reelSpeed - p.bandCenter) <= p.bandHalf;
       if (inSpot && !p.inSpot) sfx.spotTick();
