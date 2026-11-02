@@ -89,6 +89,7 @@ const S = {
   burstT: 0,
   tension: 0,
   progress: 0,
+  reel: 0,
   crankAcc: 0,
   crankNotch: 0,
   flash: null as string | null,
@@ -168,6 +169,7 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (k === ' ' && !e.repeat) handleTap();
   if (k === 't' && !e.repeat) handleThrow();
+  if (k === 'y' && !e.repeat) handleYank();
   if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown'].includes(k) || k === ' ') {
     keys.add(k);
     e.preventDefault();
@@ -252,6 +254,28 @@ function handleThrow(): void {
   }
 }
 
+// A yank (pulling the phone back toward you) sets the hook. This replaces the
+// old tap-to-strike: it's the opposite flick of a throw, so casting and
+// striking are both physical phone motions.
+function doStrike(): void {
+  if (S.state !== 'bite') return;
+  S.state = 'fight';
+  S.stateT = 0;
+  S.tension = 0.3;
+  S.progress = 0.15;
+  S.bursting = false;
+  S.burstT = 0.7;
+  S.crankAcc = 0;
+  S.crankNotch = 0;
+  addRipple(S.bobber.x, S.bobber.y, 34);
+}
+
+function handleYank(): void {
+  sfx.ensure();
+  doStrike();
+}
+
+// Tap is now only "continue / proceed". Casting is a throw; striking is a yank.
 function handleTap(): void {
   sfx.ensure();
   if (S.state === 'baiting') {
@@ -259,18 +283,6 @@ function handleTap(): void {
     S.bait = S.bait ?? 'worm';
     S.state = 'idle';
     S.stateT = 0;
-  } else if (S.state === 'idle') {
-    startCast();
-  } else if (S.state === 'bite') {
-    S.state = 'fight';
-    S.stateT = 0;
-    S.tension = 0.3;
-    S.progress = 0.15;
-    S.bursting = false;
-    S.burstT = 0.7;
-    S.crankAcc = 0;
-    S.crankNotch = 0;
-    addRipple(S.bobber.x, S.bobber.y, 34);
   } else if (S.state === 'caught') {
     // Proceed past the catch reveal — re-bait before the next cast.
     resultOverlay.classList.add('hidden');
@@ -301,6 +313,7 @@ function update(dt: number): void {
   // Reset per-frame shake/reel (the fight case overrides them below).
   S.shake = 0;
   S.rodShake = 0;
+  S.reel = 0;
   sfx.setReel(0);
 
   // Particles: gravity on splash droplets; drop the expired ones.
@@ -414,6 +427,7 @@ function update(dt: number): void {
         : f.def.strength * 0.12;
       const { v } = readInput();
       const r = clamp(v / MAX_CRANK_RAD_S, 0, 1);
+      S.reel = r;
       const lo = clamp(-v / MAX_CRANK_RAD_S, 0, 0.7);
       // Reeling wins the fight; the fish's hard pulls raise line tension, so you
       // ease off (let a little line out) during a burst or it snaps. Tuned to be
@@ -481,6 +495,7 @@ function sceneView(): Scene {
     rodShake: S.rodShake,
     tension: S.tension,
     progress: S.progress,
+    reel: S.reel,
     points: S.points,
     catchCount: S.catchCount,
     lastName: S.lastName,
@@ -584,6 +599,8 @@ async function startSession(): Promise<void> {
         handleTap();
       } else if (m.kind === 'throw') {
         handleThrow();
+      } else if (m.kind === 'yank') {
+        handleYank();
       } else if (m.kind === 'bait') {
         S.bait = m.id;
         if (S.state === 'baiting') {
@@ -639,7 +656,7 @@ copyUrlBtn.addEventListener('click', async () => {
   }
 });
 
-debugEl.textContent = 'A/D aim · W crank · S let out · T throw · Space tap — or pair the phone';
+debugEl.textContent = 'A/D aim · W crank · S let out · T throw · Y yank(strike) · Space continue — or pair the phone';
 
 // Auto-start: the QR appears as soon as the page loads.
 void startSession();

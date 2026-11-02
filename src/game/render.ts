@@ -59,6 +59,7 @@ export interface Scene {
   rodShake: number; // 0..1 rod-tug intensity (the fish pulling while idle)
   tension: number;
   progress: number;
+  reel: number; // 0..1 live crank input (shows whether cranking is registering)
   points: number;
   catchCount: number;
   lastName: string | null;
@@ -334,13 +335,13 @@ function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
     s.state === 'baiting'
       ? 'Pick a bait on your phone to start'
       : s.state === 'idle'
-        ? 'Flick the phone to throw (or Space) to cast'
+        ? 'Throw the phone (or press T) to cast'
         : s.state === 'casting'
           ? '…'
           : s.state === 'waiting'
-            ? 'Waiting for a bite… flick to recast'
+            ? 'Waiting for a bite… throw to recast'
             : s.state === 'bite'
-              ? 'STRIKE! Tap now!'
+              ? 'STRIKE! Yank the phone!'
               : s.state === 'fight'
                 ? 'CRANK! Spin the wheel on your phone — ease off when it pulls hard'
                 : '';
@@ -368,6 +369,7 @@ function drawHud(ctx: CanvasRenderingContext2D, s: Scene): void {
   ctx.textAlign = 'left';
 
   if (s.state === 'fight' || s.state === 'caught') {
+    bar(ctx, 20, H - 74, 300, 12, s.reel, 'REEL INPUT', ['#a3e635', '#a3e635', '#d9f99d']);
     bar(ctx, 20, H - 46, 300, 16, s.tension, 'LINE TENSION', ['#3ddc84', '#ffd94d', '#ff4d4d']);
     bar(ctx, 340, H - 46, 300, 16, s.progress, 'LINE RECOVERED', ['#38bdf8', '#38bdf8', '#7dd3fc']);
   }
