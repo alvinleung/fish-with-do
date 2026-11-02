@@ -148,3 +148,14 @@ export function lose(): void {
   blip(290, 0.42, 'sawtooth', 0.3, 70);
   noiseBurst(0.3, 'lowpass', 520, 0.3);
 }
+
+// Soft confirm when the reeling hook enters the sweet-spot band.
+export function spotTick(): void {
+  blip(900, 0.08, 'sine', 0.11, 1260);
+}
+
+// The fish surges — the sweet-spot band starts whipping around faster.
+export function surge(): void {
+  noiseBurst(0.28, 'bandpass', 680, 0.2);
+  blip(150, 0.22, 'sawtooth', 0.16, 85);
+}
