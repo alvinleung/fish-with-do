@@ -32,8 +32,15 @@
       <!-- JRPG-style character dialogue box (bottom center) -->
       <div id="dialogue" class="hidden">
         <div id="dlgName" class="dlg-name"></div>
-        <div id="dlgText" class="dlg-text"></div>
-        <div id="dlgCaret" class="dlg-caret">▼</div>
+        <img id="dlgPortrait" class="dlg-portrait" alt="" />
+        <div class="dlg-body">
+          <div id="dlgText" class="dlg-text"></div>
+          <div id="dlgCaret" class="dlg-caret">▼</div>
+          <div id="dlgChoices" class="dlg-choices hidden">
+            <button id="dlgYes" class="dlg-choice">Yes</button>
+            <button id="dlgNo" class="dlg-choice">No</button>
+          </div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/game/main.ts"></script>

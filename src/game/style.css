@@ -242,13 +242,36 @@ h2 {
   left: 50%;
   bottom: 64px;
   transform: translateX(-50%);
-  width: min(680px, 86%);
-  z-index: 3;
+  width: min(720px, 90%);
+  z-index: 5;
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
   background: linear-gradient(180deg, rgba(13, 22, 40, 0.97), rgba(8, 14, 28, 0.97));
   border: 2px solid #d7e2f7;
   border-radius: 12px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(8, 14, 28, 0.95);
-  padding: 14px 18px 16px;
+  padding: 18px 18px 16px;
+}
+
+/* Character portrait (left). Shown only when the box has the .portrait class. */
+.dlg-portrait {
+  width: 96px;
+  flex: none;
+  align-self: center;
+  object-fit: contain;
+  display: none;
+}
+
+#dialogue.portrait .dlg-portrait {
+  display: block;
+}
+
+.dlg-body {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding-top: 10px;
 }
 
 .dlg-name {
@@ -275,8 +298,8 @@ h2 {
 
 .dlg-caret {
   position: absolute;
-  right: 16px;
-  bottom: 10px;
+  right: 4px;
+  bottom: -6px;
   color: var(--accent);
   font-size: 0.85rem;
   opacity: 0;
@@ -294,6 +317,30 @@ h2 {
   50% {
     opacity: 0;
   }
+}
+
+/* Yes/No choices (intro). */
+.dlg-choices {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.dlg-choice {
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #eaf1ff;
+  padding: 6px 20px;
+}
+
+.dlg-choice:hover,
+.dlg-choice:active {
+  background: var(--accent);
+  color: #04121f;
 }
 
 .hidden {

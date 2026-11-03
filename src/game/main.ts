@@ -22,6 +22,7 @@ import {
 } from './render';
 import * as sfx from './audio';
 import rodImgUrl from '../assets/fishing-rod-black.png';
+import characterUrl from '../assets/character.png';
 import './style.css';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
@@ -36,6 +37,10 @@ const pairWrap = $('pairWrap');
 const dialogueEl = $('dialogue');
 const dlgNameEl = $('dlgName');
 const dlgTextEl = $('dlgText');
+const dlgPortraitEl = $('dlgPortrait') as HTMLImageElement;
+const dlgChoicesEl = $('dlgChoices');
+const dlgYesEl = $('dlgYes') as HTMLButtonElement;
+const dlgNoEl = $('dlgNo') as HTMLButtonElement;
 
 // True once any phone has pressed "Start game"; the QR screen stays up until then.
 let gameStarted = false;
@@ -89,6 +94,16 @@ const LAYOUTS: PlayerLayout[] = [
 const BITE_WINDOW = 1.4; // seconds you have to strike
 const CAST_TIME = 0.8;
 const NOTCH_RAD = Math.PI / 6; // 30° — one ratchet click per this much crank
+
+// Fish difficulty ramps with a fish's strength. The base reeling tuning above is
+// the floor for weak fish (strength ~0.5 and under); stronger fish need more
+// cranking, pull harder, and surge a little more often.
+const DIFF = {
+  crankK: 1.4, // crankNeed ramp for strength above 0.5
+  pullBase: 0.8, // pull scale at zero strength
+  pullK: 0.35, // extra pull scale per unit of strength
+  calmK: 0.5, // stronger fish surge more often (calm shortened by strength*calmK)
+};
 
 interface ActiveFish {
   def: CatchDef;
@@ -221,8 +236,10 @@ function flash(p: Player, text: string): void {
 }
 
 // ---- JRPG-style character dialogue ---------------------------------------------
-// One bottom dialogue box; the hooked fish talks. Typewriter reveal with a
-// blinking advance caret. Both players share the box, so the latest line wins.
+// One bottom dialogue box with an optional character portrait. In-game the
+// hooked fish talks (no portrait, auto-hides); the intro shows the character
+// (character.png) who greets the player, then asks a yes/no question. Typewriter
+// reveal with a blinking advance caret.
 const FISH = 'FISH';
 const DLG = {
   bite: ['Huph— something\'s got my tail!', 'Oh no, a hook?! Let go!'],
@@ -247,19 +264,42 @@ interface DialogueState {
   t: number; // seconds since this line started typing
   holdT: number; // seconds shown after the line finished (auto-hide)
   active: boolean;
+  autoHide: boolean; // false keeps the box up (intro) until it's dismissed
+  portrait: boolean;
 }
-const dlg: DialogueState = { name: '', full: '', t: 0, holdT: 0, active: false };
+const dlg: DialogueState = {
+  name: '',
+  full: '',
+  t: 0,
+  holdT: 0,
+  active: false,
+  autoHide: true,
+  portrait: false,
+};
 const DLG_CPS = 26; // characters per second (typewriter speed)
 const DLG_HOLD = 3.2; // linger after a line completes before hiding
 
-function say(name: string, text: string): void {
+function say(
+  name: string,
+  text: string,
+  opts: { portrait?: boolean; autoHide?: boolean } = {}
+): void {
   dlg.name = name;
   dlg.full = text;
   dlg.t = 0;
   dlg.holdT = 0;
   dlg.active = true;
+  dlg.autoHide = opts.autoHide !== false;
+  dlg.portrait = !!opts.portrait;
   dlgNameEl.textContent = name;
   dlgTextEl.textContent = '';
+  if (opts.portrait) {
+    dlgPortraitEl.src = characterUrl;
+    dialogueEl.classList.add('portrait');
+  } else {
+    dialogueEl.classList.remove('portrait');
+  }
+  dlgChoicesEl.classList.add('hidden');
   dialogueEl.classList.remove('hidden');
   dialogueEl.classList.remove('done');
 }
@@ -271,6 +311,7 @@ function stepDialogue(dt: number): void {
   dlgTextEl.textContent = dlg.full.slice(0, shown);
   if (shown >= dlg.full.length) {
     dialogueEl.classList.add('done');
+    if (!dlg.autoHide) return; // intro: wait for the player to continue
     dlg.holdT += dt;
     if (dlg.holdT >= DLG_HOLD) {
       dlg.active = false;
@@ -278,6 +319,90 @@ function stepDialogue(dt: number): void {
     }
   }
 }
+
+function finishTyping(): void {
+  if (dlg.full && dlg.full.length > 0 && !dialogueEl.classList.contains('done')) {
+    dlg.t = dlg.full.length / DLG_CPS;
+  }
+}
+
+// ---- Intro: the character greets the player, then asks yes/no ------------------
+const CHAR_NAME = 'FRIEND'; // TODO: the character's real name
+const INTRO = {
+  lines: ['Hey Kaia, happy birthday!', 'Let\'s go fishing!'],
+  question: 'Do you know how to fish?',
+  yes: 'Nice! Lean to aim, spin to crank, tap to strike.',
+  no: 'No worries — lean to aim, spin to crank, tap to strike.',
+};
+
+// introStep: 0 = line 1, 1 = line 2, 2 = question (awaiting a pick), 3 = hint.
+let introStep = -1;
+let introWaitingChoice = false;
+
+function sayIntro(text: string): void {
+  say(CHAR_NAME, text, { portrait: true, autoHide: false });
+}
+
+function startIntro(): void {
+  introWaitingChoice = false;
+  introStep = 0;
+  sayIntro(INTRO.lines[0]);
+}
+
+function endIntro(): void {
+  introStep = -1;
+  introWaitingChoice = false;
+  dlg.active = false;
+  dlgChoicesEl.classList.add('hidden');
+  dialogueEl.classList.add('hidden');
+}
+
+function introAdvance(): void {
+  if (introStep < 0) return;
+  if (!dialogueEl.classList.contains('done')) {
+    finishTyping();
+    return;
+  }
+  if (introWaitingChoice) return; // needs a yes/no pick, not a box click
+  switch (introStep) {
+    case 0:
+      introStep = 1;
+      sayIntro(INTRO.lines[1]);
+      break;
+    case 1:
+      introStep = 2;
+      introWaitingChoice = true;
+      sayIntro(INTRO.question);
+      dlgChoicesEl.classList.remove('hidden');
+      break;
+    default:
+      break; // hint phase: the box auto-closes
+  }
+}
+
+function introChoice(yes: boolean): void {
+  if (introStep !== 2 || !introWaitingChoice) return;
+  introStep = 3;
+  introWaitingChoice = false;
+  dlgChoicesEl.classList.add('hidden');
+  sayIntro(yes ? INTRO.yes : INTRO.no);
+  setTimeout(endIntro, 3800);
+}
+
+// A click on the box advances the intro; the yes/no buttons handle their own clicks.
+dialogueEl.addEventListener('pointerdown', (e) => {
+  if (introStep < 0) return;
+  if (e.target instanceof Element && e.target.closest('.dlg-choice')) return;
+  introAdvance();
+});
+dlgYesEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  introChoice(true);
+});
+dlgNoEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  introChoice(false);
+});
 
 function scheduleBite(p: Player): void {
   p.biteT = 2.5 + Math.random() * 5;
@@ -374,7 +499,9 @@ function doStrike(p: Player): void {
   p.progress = 0.15;
   p.bursting = false;
   p.burstT = 1.2 + Math.random() * 1.0; // first surge comes in a beat
-  p.crankNeed = 1 + Math.random() * 0.6; // this fish: 1.0x–1.6x the cranking
+  // Base crank requirement, ramped up for stronger fish (weak fish stay at base).
+  const s = (p.fish as ActiveFish).def.strength;
+  p.crankNeed = (1 + Math.max(0, s - 0.5) * DIFF.crankK) * (1 + Math.random() * 0.6);
   p.crankAcc = 0;
   p.crankNotch = 0;
   addRipple(p, p.bobber.x, p.bobber.y, 34);
@@ -557,7 +684,7 @@ function updatePlayer(p: Player, dt: number): void {
         p.bursting = !p.bursting;
         p.burstT = p.bursting
           ? 0.7 + Math.random() * 0.7 + strength * 0.6 // surge length
-          : 1.4 + Math.random() * 2.2; // calm before the next surge
+          : 1.6 - strength * DIFF.calmK + Math.random() * 2.2; // calm (stronger = shorter)
         if (p.bursting) {
           sfx.surge();
           sendHaptic(p.id, 40);
@@ -571,9 +698,10 @@ function updatePlayer(p: Player, dt: number): void {
       f.phase += dt * (1.6 + 2.4 * burst);
       const f2 = Math.min(1, p.stateT * 1.2);
       const pull =
-        Math.max(0, Math.sin(f.phase * 0.9)) * (0.55 + 0.45 * f2) +
-        Math.max(0, Math.sin(f.phase * 2.3 + 1)) * 0.5 * f2 +
-        burst * 0.5;
+        (Math.max(0, Math.sin(f.phase * 0.9)) * (0.55 + 0.45 * f2) +
+          Math.max(0, Math.sin(f.phase * 2.3 + 1)) * 0.5 * f2 +
+          burst * 0.5) *
+        (DIFF.pullBase + strength * DIFF.pullK); // stronger fish pull harder
 
       // Tension: cranking against a pull builds it; easing off (or slacking)
       // lets it bleed off. Hit 1 and the line snaps.
@@ -883,5 +1011,6 @@ function startSession(): void {
   }
 }
 
-// Generate the QR codes as soon as the page loads.
+// Generate the QR codes as soon as the page loads, then play the intro.
 startSession();
+startIntro();
