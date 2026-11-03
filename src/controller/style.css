@@ -123,7 +123,6 @@ button:disabled {
   -webkit-touch-callout: none;
   overscroll-behavior: contain;
   border-radius: 50%;
-  box-shadow: 0 0 0 4px var(--pc), 0 0 34px var(--pc);
 }
 
 #reel img {
@@ -231,6 +230,29 @@ button:disabled {
   font-weight: 600;
   font-size: 1.05rem;
   line-height: 1.5;
+}
+
+/* Subtle which-player tag — just small text in the player color. */
+#playerTag {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--pc);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+#playerTag::before {
+  content: 'Player 1';
+}
+
+body.p2 #playerTag::before {
+  content: 'Player 2';
 }
 
 .hidden {
