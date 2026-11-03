@@ -33,6 +33,9 @@ const statusEl = $('status');
 const debugEl = $('debug');
 const soundHint = $('soundHint') as HTMLButtonElement;
 const pairWrap = $('pairWrap');
+const dialogueEl = $('dialogue');
+const dlgNameEl = $('dlgName');
+const dlgTextEl = $('dlgText');
 
 // True once any phone has pressed "Start game"; the QR screen stays up until then.
 let gameStarted = false;
@@ -118,6 +121,8 @@ interface Player {
   burstT: number; // time until the surge state flips
   tension: number; // 0..1 — line tension (1 = the line snaps)
   progress: number; // 0..1 — how reeled in the fish is (1 = landed, 0 = escaped)
+  crankNeed: number; // per-fight random: higher = must crank harder to reel in
+  lastWarn: number; // last near-snap dialogue time (G.t), for throttling
   reelR: number; // live crank 0..1 (drives the shared reel sound)
   rodShake: number;
   crankAcc: number;
@@ -152,6 +157,8 @@ function makePlayer(id: PlayerId, layout: PlayerLayout): Player {
     burstT: 0,
     tension: 0,
     progress: 0,
+    crankNeed: 1,
+    lastWarn: 0,
     reelR: 0,
     rodShake: 0,
     crankAcc: 0,
@@ -211,6 +218,65 @@ function addSparkle(p: Player, x: number, y: number, n: number): void {
 function flash(p: Player, text: string): void {
   p.flash = text;
   p.flashT = 0;
+}
+
+// ---- JRPG-style character dialogue ---------------------------------------------
+// One bottom dialogue box; the hooked fish talks. Typewriter reveal with a
+// blinking advance caret. Both players share the box, so the latest line wins.
+const FISH = 'FISH';
+const DLG = {
+  bite: ['Huph— something\'s got my tail!', 'Oh no, a hook?! Let go!'],
+  fight: [
+    'Alright, I\'m fightin\' back. Hold on!',
+    'This line\'s comin\' for you now.',
+    'I\'m not lettin\' go, you hear me!',
+  ],
+  surge: ['GRR—! I\'m pullin\' HARD, watch it!', 'Easy! I\'m goin\' for a dive!'],
+  warn: ['Easy! You\'re about to snap me!', 'Oof— that line\'s gettin\' real tight!'],
+  caught: ['Alright alright, you got me. Nice one!', 'Okay, okay— I give! Well reeled.'],
+  snapped: ['My line... snapped? Ha! Lucky fish!', 'Snapped clean! You heard it here!'],
+  free: ['Too late... *wiggles free*', 'Saw your hand shake. Gone already!'],
+};
+function pick<T>(arr: T[]): T {
+  return arr[(Math.random() * arr.length) | 0];
+}
+
+interface DialogueState {
+  name: string;
+  full: string;
+  t: number; // seconds since this line started typing
+  holdT: number; // seconds shown after the line finished (auto-hide)
+  active: boolean;
+}
+const dlg: DialogueState = { name: '', full: '', t: 0, holdT: 0, active: false };
+const DLG_CPS = 26; // characters per second (typewriter speed)
+const DLG_HOLD = 3.2; // linger after a line completes before hiding
+
+function say(name: string, text: string): void {
+  dlg.name = name;
+  dlg.full = text;
+  dlg.t = 0;
+  dlg.holdT = 0;
+  dlg.active = true;
+  dlgNameEl.textContent = name;
+  dlgTextEl.textContent = '';
+  dialogueEl.classList.remove('hidden');
+  dialogueEl.classList.remove('done');
+}
+
+function stepDialogue(dt: number): void {
+  if (!dlg.active) return;
+  dlg.t += dt;
+  const shown = Math.min(dlg.full.length, Math.floor(dlg.t * DLG_CPS));
+  dlgTextEl.textContent = dlg.full.slice(0, shown);
+  if (shown >= dlg.full.length) {
+    dialogueEl.classList.add('done');
+    dlg.holdT += dt;
+    if (dlg.holdT >= DLG_HOLD) {
+      dlg.active = false;
+      dialogueEl.classList.add('hidden');
+    }
+  }
 }
 
 function scheduleBite(p: Player): void {
@@ -308,9 +374,11 @@ function doStrike(p: Player): void {
   p.progress = 0.15;
   p.bursting = false;
   p.burstT = 1.2 + Math.random() * 1.0; // first surge comes in a beat
+  p.crankNeed = 1 + Math.random() * 0.6; // this fish: 1.0x–1.6x the cranking
   p.crankAcc = 0;
   p.crankNotch = 0;
   addRipple(p, p.bobber.x, p.bobber.y, 34);
+  say(FISH, pick(DLG.fight));
 }
 
 function doCatch(p: Player): void {
@@ -327,10 +395,12 @@ function doCatch(p: Player): void {
   sfx.catchFish();
   addSparkle(p, p.bobber.x, p.bobber.y, 26);
   flash(p, `Player ${p.id} caught a ${f.def.name}!`);
+  say(FISH, pick(DLG.caught));
 }
 
-function doLose(p: Player, text: string): void {
+function doLose(p: Player, text: string, fishLine?: string): void {
   flash(p, text);
+  if (fishLine) say(FISH, fishLine);
   p.fish = null;
   p.state = 'lost';
   p.stateT = 0;
@@ -433,6 +503,7 @@ function updatePlayer(p: Player, dt: number): void {
         p.stateT = 0;
         sfx.bite();
         sendHaptic(p.id, 80);
+        say(FISH, pick(DLG.bite));
       }
       break;
     }
@@ -460,7 +531,8 @@ function updatePlayer(p: Player, dt: number): void {
       }
       if (t < 0.4 && Math.random() < dt * 30) addRipple(p, p.bobber.x, p.bobberBase.y, 20);
       p.rodShake = Math.min(1, t * 3);
-      if (t > BITE_WINDOW) doLose(p, 'Player ' + p.id + ': too slow — it got away');
+      if (t > BITE_WINDOW)
+        doLose(p, 'Player ' + p.id + ': too slow — it got away', pick(DLG.free));
       break;
     }
     case 'fight': {
@@ -489,6 +561,7 @@ function updatePlayer(p: Player, dt: number): void {
         if (p.bursting) {
           sfx.surge();
           sendHaptic(p.id, 40);
+          if (Math.random() < 0.5) say(FISH, pick(DLG.surge));
         }
       }
       const burst = p.bursting ? 1 : 0;
@@ -506,9 +579,14 @@ function updatePlayer(p: Player, dt: number): void {
       // lets it bleed off. Hit 1 and the line snaps.
       p.tension += dt * (r * (0.3 + 0.75 * pull) - 0.62 - 0.8 * lo);
       p.tension = clamp(p.tension, 0, 1);
+      if (p.tension > 0.78 && G.t - p.lastWarn > 3 && Math.random() < 0.5) {
+        p.lastWarn = G.t;
+        say(FISH, pick(DLG.warn));
+      }
       // Progress: crank to reel the fish in; it recovers when you're not cranking
-      // hard, and slacking loses ground.
-      p.progress += dt * (0.3 * r - 0.2 * pull * (1 - 0.8 * r) - 0.1 * lo);
+      // hard, and slacking loses ground. Reeling is intentionally slow (base
+      // 0.24) and this fight's random crankNeed makes some fish demand more.
+      p.progress += dt * ((0.24 / p.crankNeed) * r - 0.2 * pull * (1 - 0.8 * r) - 0.1 * lo);
       p.progress = clamp(p.progress, 0, 1);
 
       // Thrash + rod feedback scale with the pull and how close the line is to
@@ -526,13 +604,13 @@ function updatePlayer(p: Player, dt: number): void {
 
       if (p.tension >= 1) {
         addRipple(p, p.bobber.x, p.bobber.y, 30);
-        doLose(p, 'Player ' + p.id + ': line snapped!');
+        doLose(p, 'Player ' + p.id + ': line snapped!', pick(DLG.snapped));
         break;
       }
       if (p.progress >= 1) doCatch(p);
       else if (p.progress <= 0) {
         addSplash(p, p.bobber.x, p.bobber.y, 10);
-        doLose(p, 'Player ' + p.id + ': it broke free');
+        doLose(p, 'Player ' + p.id + ': it broke free', pick(DLG.free));
       }
       break;
     }
@@ -568,6 +646,7 @@ function updatePlayer(p: Player, dt: number): void {
 function update(dt: number): void {
   G.t += dt;
   for (const p of players) updatePlayer(p, dt);
+  stepDialogue(dt);
 }
 
 // ---- Render --------------------------------------------------------------------
@@ -761,6 +840,8 @@ function resetPlayers(): void {
     p.burstT = 0;
     p.tension = 0;
     p.progress = 0;
+    p.crankNeed = 1;
+    p.lastWarn = 0;
     p.reelR = 0;
     p.rodShake = 0;
     p.crankAcc = 0;

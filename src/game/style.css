@@ -236,6 +236,66 @@ h2 {
   }
 }
 
+/* JRPG-style character dialogue box — bottom center, above the sound hint. */
+#dialogue {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  width: min(680px, 86%);
+  z-index: 3;
+  background: linear-gradient(180deg, rgba(13, 22, 40, 0.97), rgba(8, 14, 28, 0.97));
+  border: 2px solid #d7e2f7;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55), inset 0 0 0 2px rgba(8, 14, 28, 0.95);
+  padding: 14px 18px 16px;
+}
+
+.dlg-name {
+  position: absolute;
+  top: -13px;
+  left: 14px;
+  padding: 2px 10px;
+  background: linear-gradient(180deg, var(--accent), #0ea5e9);
+  color: #04121f;
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.dlg-text {
+  font-size: 1.02rem;
+  line-height: 1.5;
+  color: #eaf1ff;
+  min-height: 2.6em;
+}
+
+.dlg-caret {
+  position: absolute;
+  right: 16px;
+  bottom: 10px;
+  color: var(--accent);
+  font-size: 0.85rem;
+  opacity: 0;
+}
+
+#dialogue.done .dlg-caret {
+  animation: dlg-blink 1s steps(1) infinite;
+}
+
+@keyframes dlg-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
 .hidden {
   display: none !important;
 }
