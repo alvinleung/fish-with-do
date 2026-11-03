@@ -59,12 +59,8 @@ export interface PlayerScene {
   ripples: Ripple[];
   particles: Particle[];
   rodShake: number; // 0..1 rod-tug intensity (the fish pulling while not reeling)
-  reelSpeed: number; // 0..1 — reeling hook position on the meter
-  bandCenter: number; // 0..1 — sweet-spot band center
-  bandHalf: number; // 0..~0.16 — sweet-spot band half-height
-  inSpot: boolean; // is the hook inside the band right now
-  bursting: boolean; // is the band currently surging (moving fast)
-  progress: number; // 0..1 — net catch progress
+  tension: number; // 0..1 — line tension (1 = the line snaps)
+  progress: number; // 0..1 — how reeled in the fish is (1 = landed)
   points: number;
   catchCount: number;
   lastName: string | null;
@@ -308,85 +304,35 @@ function drawBobber(
 
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
-// The fight meter: a vertical track where a sweet-spot band drifts up and down.
-// Your crank speed is the "hook" (a marker you keep inside the band). A catch
-// progress bar fills alongside while you hold the spot. Drawn in this player's
-// corner, mirrored for the right side.
-function drawFightMeter(ctx: CanvasRenderingContext2D, p: PlayerScene): void {
-  const aRight = p.layout.align === 'right';
-  const mw = 30;
-  const mh = 168;
-  const my = 112;
-  const mx = aRight ? p.layout.hudX - mw : p.layout.hudX;
-  const surging = p.bursting;
-
-  // Track.
-  ctx.fillStyle = 'rgba(8,16,30,0.68)';
-  ctx.fillRect(mx, my, mw, mh);
-
-  // Sweet-spot band (turns warm while the fish is surging).
-  const top = clamp01(p.bandCenter + p.bandHalf);
-  const bot = clamp01(p.bandCenter - p.bandHalf);
-  const yTop = my + (1 - top) * mh;
-  const yBot = my + (1 - bot) * mh;
-  ctx.fillStyle = surging ? 'rgba(255,150,60,0.30)' : 'rgba(61,220,132,0.32)';
-  ctx.fillRect(mx, yTop, mw, yBot - yTop);
-  ctx.strokeStyle = surging ? 'rgba(255,180,90,0.98)' : 'rgba(140,245,180,0.95)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(mx, yTop);
-  ctx.lineTo(mx + mw, yTop);
-  ctx.moveTo(mx, yBot);
-  ctx.lineTo(mx + mw, yBot);
-  ctx.stroke();
-
-  // Your reeling hook — glows green in the spot, amber when you've missed it.
-  const hy = my + (1 - p.reelSpeed) * mh;
-  ctx.fillStyle = p.inSpot ? '#9dffb4' : '#ffd24d';
-  ctx.shadowColor = p.inSpot ? 'rgba(120,255,170,0.9)' : 'rgba(255,210,77,0.9)';
-  ctx.shadowBlur = 8;
-  ctx.fillRect(mx - (aRight ? 6 : 0), hy - 2.5, mw + 6, 5);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = p.inSpot ? '#d6ffe2' : '#ffe6a3';
-  ctx.beginPath();
-  if (aRight) {
-    ctx.moveTo(mx - 6, hy);
-    ctx.lineTo(mx - 13, hy - 6);
-    ctx.lineTo(mx - 13, hy + 6);
-  } else {
-    ctx.moveTo(mx + mw + 6, hy);
-    ctx.lineTo(mx + mw + 13, hy - 6);
-    ctx.lineTo(mx + mw + 13, hy + 6);
-  }
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.font = '700 11px system-ui, sans-serif';
-  ctx.textAlign = aRight ? 'right' : 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = 'rgba(226,236,250,0.9)';
-  ctx.fillText('REEL', aRight ? mx + mw : mx, my - 6);
-
-  // Catch progress — fills while you hold the green, drains when you miss.
-  const pw = 150;
-  const ph = 14;
-  const py = my + mh - ph;
-  const px = aRight ? mx - 16 - pw : mx + mw + 16;
+// A labeled horizontal bar filled left-to-right with a 3-stop gradient. Used for
+// the fight's line-tension and line-recovered meters.
+function bar(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  v: number,
+  label: string,
+  colors: [string, string, string]
+): void {
   ctx.font = '700 12px system-ui, sans-serif';
-  ctx.textAlign = aRight ? 'right' : 'left';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'rgba(226,236,250,0.85)';
-  ctx.fillText('CATCH', aRight ? px + pw : px, py - 6);
+  ctx.fillText(label, x, y - 6);
+
   ctx.fillStyle = 'rgba(8,16,30,0.65)';
-  ctx.fillRect(px, py, pw, ph);
-  const pg = ctx.createLinearGradient(px, 0, px + pw, 0);
-  pg.addColorStop(0, '#2f8fd6');
-  pg.addColorStop(1, '#7dd3fc');
-  ctx.fillStyle = pg;
-  const fw = (pw - 4) * clamp01(p.progress);
-  ctx.fillRect(aRight ? px + pw - 2 - fw : px + 2, py + 2, fw, ph - 4);
+  ctx.fillRect(x, y, w, h);
+  const g = ctx.createLinearGradient(x, 0, x + w, 0);
+  g.addColorStop(0, colors[0]);
+  g.addColorStop(0.55, colors[1]);
+  g.addColorStop(1, colors[2]);
+  ctx.fillStyle = g;
+  ctx.fillRect(x + 2, y + 2, (w - 4) * clamp01(v), h - 4);
   ctx.strokeStyle = 'rgba(226,240,255,0.35)';
   ctx.lineWidth = 1;
-  ctx.strokeRect(px + 0.5, py + 0.5, pw - 1, ph - 1);
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
 function hintText(state: GameState): string {
@@ -402,7 +348,7 @@ function hintText(state: GameState): string {
     case 'bite':
       return 'STRIKE! Throw!';
     case 'fight':
-      return 'Keep the reel in the green!';
+      return 'Crank to reel it in — keep the line from snapping!';
     default:
       return '';
   }
@@ -444,9 +390,13 @@ function drawPlayerHud(ctx: CanvasRenderingContext2D, t: number, p: PlayerScene)
     ctx.shadowBlur = 0;
   }
 
-  // The reeling sweet-spot meter, on this player's side.
+  // The fight bars on this player's side: line tension (keep it from snapping)
+  // and line recovered (fill it to land the fish).
   if (p.state === 'fight') {
-    drawFightMeter(ctx, p);
+    const bw = 250;
+    const bx = aRight ? p.layout.hudX - bw : p.layout.hudX;
+    bar(ctx, bx, H - 74, bw, 14, p.tension, 'LINE TENSION', ['#3ddc84', '#ffd94d', '#ff4d4d']);
+    bar(ctx, bx, H - 44, bw, 14, p.progress, 'LINE RECOVERED', ['#38bdf8', '#38bdf8', '#7dd3fc']);
   }
 
   // Flash (e.g. "It got away…") centered in this player's half.

@@ -86,9 +86,6 @@ const LAYOUTS: PlayerLayout[] = [
 const BITE_WINDOW = 1.4; // seconds you have to strike
 const CAST_TIME = 0.8;
 const NOTCH_RAD = Math.PI / 6; // 30° — one ratchet click per this much crank
-// How much extra crank it takes to push the reeling hook to the top. >1 makes
-// reeling less sensitive: you have to turn the wheel more to move it up.
-const REEL_SENSITIVITY = 1.6;
 
 interface ActiveFish {
   def: CatchDef;
@@ -117,16 +114,11 @@ interface Player {
   fish: ActiveFish | null;
   ripples: Ripple[];
   particles: Particle[];
-  bursting: boolean;
-  burstT: number; // time until the next surge (or until the surge ends)
-  reelSpeed: number; // 0..1 — where the reeling hook sits on the meter
-  bandCenter: number; // 0..1 — center of the drifting sweet-spot band
-  bandHalf: number; // 0..~0.16 — half-height of the sweet-spot band
-  bandSeed: number; // random phase so each fight's band drift differs
-  inSpot: boolean; // is the hook inside the band right now
-  progress: number; // 0..1 — net catch progress (1 = landed, 0 = escaped)
+  bursting: boolean; // is the fish currently surging (pulling much harder)
+  burstT: number; // time until the surge state flips
+  tension: number; // 0..1 — line tension (1 = the line snaps)
+  progress: number; // 0..1 — how reeled in the fish is (1 = landed, 0 = escaped)
   reelR: number; // live crank 0..1 (drives the shared reel sound)
-  smoothV: number; // low-passed crank velocity (rad/s) so the meter is steady
   rodShake: number;
   crankAcc: number;
   crankNotch: number;
@@ -158,14 +150,9 @@ function makePlayer(id: PlayerId, layout: PlayerLayout): Player {
     particles: [],
     bursting: false,
     burstT: 0,
-    reelSpeed: 0.5,
-    bandCenter: 0.5,
-    bandHalf: 0.14,
-    bandSeed: 0,
-    inSpot: false,
+    tension: 0,
     progress: 0,
     reelR: 0,
-    smoothV: 0,
     rodShake: 0,
     crankAcc: 0,
     crankNotch: 0,
@@ -315,21 +302,14 @@ function startCast(p: Player, power = 1): void {
 
 function doStrike(p: Player): void {
   if (p.state !== 'bite') return;
-  const strength = p.fish?.def.strength ?? 0.5;
   p.state = 'fight';
   p.stateT = 0;
-  p.reelSpeed = 0.5;
-  p.bandCenter = 0.5;
-  // Harder fish get a slightly tighter band, but kept wide enough to be forgiving.
-  p.bandHalf = clamp(0.2 - strength * 0.05, 0.14, 0.22);
-  p.bandSeed = Math.random() * Math.PI * 2;
-  p.inSpot = true;
-  p.progress = 0.32;
+  p.tension = 0.3;
+  p.progress = 0.15;
   p.bursting = false;
-  p.burstT = 1.4 + Math.random() * 1.6; // first surge comes in a beat
+  p.burstT = 1.2 + Math.random() * 1.0; // first surge comes in a beat
   p.crankAcc = 0;
   p.crankNotch = 0;
-  p.smoothV = 0;
   addRipple(p, p.bobber.x, p.bobber.y, 34);
 }
 
@@ -487,6 +467,7 @@ function updatePlayer(p: Player, dt: number): void {
       const f = p.fish as ActiveFish;
       const strength = f.def.strength;
       const r = clamp(input.v / MAX_CRANK_RAD_S, -1, 1);
+      const lo = clamp(-r, 0, 1); // slack: cranking backwards lets line out
       p.reelR = clamp(r, 0, 1);
       if (r > 0) {
         p.crankAcc += r * dt;
@@ -497,67 +478,57 @@ function updatePlayer(p: Player, dt: number): void {
         }
       }
 
-      // Surges: the sweet-spot band periodically whips around much faster.
+      // Surges: the fish periodically whips around and pulls much harder. Ease
+      // off during a surge or the line tension spikes toward a snap.
       p.burstT -= dt;
       if (p.burstT <= 0) {
+        p.bursting = !p.bursting;
+        p.burstT = p.bursting
+          ? 0.7 + Math.random() * 0.7 + strength * 0.6 // surge length
+          : 1.4 + Math.random() * 2.2; // calm before the next surge
         if (p.bursting) {
-          p.bursting = false;
-          p.burstT = 1.6 + Math.random() * 2.8; // calm before the next surge
-        } else {
-          p.bursting = true;
-          p.burstT = 0.6 + Math.random() * 0.5 + strength * 0.5; // surge length
           sfx.surge();
           sendHaptic(p.id, 40);
         }
       }
+      const burst = p.bursting ? 1 : 0;
 
-      // The reeling hook: your crank speed sets where it sits (0 = not turning,
-      // 1 = full crank), scaled by REEL_SENSITIVITY so reeling is less sensitive
-      // (turn more to move it). The raw crank velocity is low-passed first so the
-      // meter follows a steady speed instead of the per-packet jitter from the
-      // phone, then smoothed again — the two stages keep it calm.
-      p.smoothV += (input.v - p.smoothV) * (1 - Math.exp(-dt * 6));
-      const target = clamp(p.smoothV / (MAX_CRANK_RAD_S * REEL_SENSITIVITY), 0, 1);
-      p.reelSpeed += (target - p.reelSpeed) * (1 - Math.exp(-dt * 5));
+      // The fish's pull: two overlapping beats that ramp in over the first
+      // second, plus a big hit while surging.
+      f.phase += dt * (1.6 + 2.4 * burst);
+      const f2 = Math.min(1, p.stateT * 1.2);
+      const pull =
+        Math.max(0, Math.sin(f.phase * 0.9)) * (0.55 + 0.45 * f2) +
+        Math.max(0, Math.sin(f.phase * 2.3 + 1)) * 0.5 * f2 +
+        burst * 0.5;
 
-      // The sweet-spot band drifts up and down gently; harder fish move it a bit
-      // faster. Eased in over the first second so a fresh hook isn't punished.
-      const sp = 0.7 + strength * 0.7;
-      const t = p.stateT;
-      const ramp = Math.min(1, t * 1.5);
-      const wave =
-        0.5 +
-        ramp *
-          (0.32 * Math.sin(t * 1.0 * sp + p.bandSeed) +
-            0.07 * Math.sin(t * 1.9 * sp + p.bandSeed * 2.3) +
-            (p.bursting ? 0.12 * Math.sin(t * 3.4 * sp + p.bandSeed) : 0));
-      p.bandCenter = clamp(wave, 0.08, 0.92);
-
-      const inSpot = Math.abs(p.reelSpeed - p.bandCenter) <= p.bandHalf;
-      if (inSpot && !p.inSpot) sfx.spotTick();
-      p.inSpot = inSpot;
-
-      // In the spot you reel the fish in; outside it the fish recovers.
-      if (inSpot) p.progress += dt * 0.24;
-      else p.progress -= dt * (0.07 + strength * 0.09);
+      // Tension: cranking against a pull builds it; easing off (or slacking)
+      // lets it bleed off. Hit 1 and the line snaps.
+      p.tension += dt * (r * (0.3 + 0.75 * pull) - 0.62 - 0.8 * lo);
+      p.tension = clamp(p.tension, 0, 1);
+      // Progress: crank to reel the fish in; it recovers when you're not cranking
+      // hard, and slacking loses ground.
+      p.progress += dt * (0.3 * r - 0.2 * pull * (1 - 0.8 * r) - 0.1 * lo);
       p.progress = clamp(p.progress, 0, 1);
 
-      // The fish thrashes more when it's pulling hard, surging, or free of the spot.
-      const churn = inSpot ? 0.4 : 1;
-      f.phase += dt * (1.4 + (p.bursting ? 2.2 : 0.6) + strength * 0.8) * churn;
-      f.x = p.bobberBase.x + Math.sin(f.phase) * (30 + 46 * (p.bursting ? 1 : 0.4));
+      // Thrash + rod feedback scale with the pull and how close the line is to
+      // snapping.
+      f.x = p.bobberBase.x + Math.sin(f.phase) * (34 + 44 * burst);
       f.y = p.bobberBase.y + 42 + Math.cos(f.phase * 1.7) * 12;
-
       p.bobber.x =
-        p.bobberBase.x + Math.sin(f.phase) * 6 + (p.bursting ? Math.sin(G.t * 40) * 4 : 0);
-      p.bobber.y = p.bobberBase.y + 6 + Math.sin(f.phase * 1.1) * 2 + (p.bursting ? 3 : 0);
+        p.bobberBase.x + Math.sin(f.phase) * 6 + (burst ? Math.sin(G.t * 40) * 4 : 0);
+      p.bobber.y = p.bobberBase.y + 6 + Math.sin(f.phase * 1.1) * 2 + (burst ? 3 : 0);
       p.bobberDip = 8;
-      p.lineSlack = 0.05 + (p.reelSpeed < 0.15 ? 0.1 : 0);
-      p.rodShake = (inSpot ? 0.28 : 0.55) + (p.bursting ? 0.25 : 0) + (r > 0 ? 0.12 : 0);
+      p.lineSlack = 0.05 + (lo > 0.2 ? lo * 0.12 : 0);
+      p.rodShake = 0.28 + 0.5 * burst + (r > 0 ? 0.14 : 0) + (p.tension > 0.7 ? 0.18 : 0);
 
-      if (Math.random() < dt * (1.5 + (p.bursting ? 5 : 0)))
-        addRipple(p, p.bobber.x, p.bobber.y, 18);
+      if (Math.random() < dt * (1.5 + burst * 5)) addRipple(p, p.bobber.x, p.bobber.y, 18);
 
+      if (p.tension >= 1) {
+        addRipple(p, p.bobber.x, p.bobber.y, 30);
+        doLose(p, 'Player ' + p.id + ': line snapped!');
+        break;
+      }
       if (p.progress >= 1) doCatch(p);
       else if (p.progress <= 0) {
         addSplash(p, p.bobber.x, p.bobber.y, 10);
@@ -614,11 +585,7 @@ function sceneView(): Scene {
       ripples: p.ripples,
       particles: p.particles,
       rodShake: p.rodShake,
-      reelSpeed: p.reelSpeed,
-      bandCenter: p.bandCenter,
-      bandHalf: p.bandHalf,
-      inSpot: p.inSpot,
-      bursting: p.bursting,
+      tension: p.tension,
       progress: p.progress,
       points: p.points,
       catchCount: p.catchCount,
@@ -640,7 +607,7 @@ function debugInfo(): void {
       ' ' +
       p.state +
         (p.state === 'fight'
-          ? ' reel=' + p.reelSpeed.toFixed(2) + ' band=' + p.bandCenter.toFixed(2) + ' prog=' + p.progress.toFixed(2)
+          ? ' tens=' + p.tension.toFixed(2) + ' prog=' + p.progress.toFixed(2)
           : '')
     );
   };
@@ -792,14 +759,9 @@ function resetPlayers(): void {
     p.particles = [];
     p.bursting = false;
     p.burstT = 0;
-    p.reelSpeed = 0.5;
-    p.bandCenter = 0.5;
-    p.bandHalf = 0.14;
-    p.bandSeed = 0;
-    p.inSpot = false;
+    p.tension = 0;
     p.progress = 0;
     p.reelR = 0;
-    p.smoothV = 0;
     p.rodShake = 0;
     p.crankAcc = 0;
     p.crankNotch = 0;
