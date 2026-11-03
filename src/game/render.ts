@@ -51,6 +51,7 @@ export interface Particle {
 export interface PlayerScene {
   id: PlayerId;
   color: string;
+  visible: boolean; // unpaired players (no phone, and P1 not on keyboard) stay hidden
   state: GameState;
   rodAngle: number;
   bobber: { x: number; y: number };
@@ -105,6 +106,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
   drawSky(ctx, s.t);
   drawWater(ctx, s.t);
   for (const p of s.players) {
+    if (!p.visible) continue;
     drawRipples(ctx, p.ripples);
     drawParticles(ctx, p.particles);
     const tip = rodTip(p.rodAngle, p.layout.pivot);
@@ -112,7 +114,9 @@ export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
     drawRod(ctx, p.rodAngle, s.t, p.rodShake, p.layout);
     drawBobber(ctx, p.bobber, s.t, p.state, p.color);
   }
-  for (const p of s.players) drawPlayerHud(ctx, s.t, p);
+  for (const p of s.players) {
+    if (p.visible) drawPlayerHud(ctx, s.t, p);
+  }
 }
 
 function drawSky(ctx: CanvasRenderingContext2D, t: number): void {

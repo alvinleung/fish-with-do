@@ -24,6 +24,8 @@ const reelFgEl = $('reelFg') as HTMLImageElement;
 const baitView = $('baitView');
 const baitGrid = $('baitGrid');
 const pairing = $('pairing');
+const startView = $('startView');
+const startBtn = $('startBtn') as HTMLButtonElement;
 const catchView = $('catchView');
 const catchImg = $('catchImg') as HTMLImageElement;
 const catchName = $('catchName');
@@ -288,6 +290,14 @@ proceedBtn.addEventListener('click', () => {
   baitView.classList.remove('hidden');
 });
 
+// "Start game": tell the game to drop its pairing screen, then hand off to the
+// bait picker so the player can begin.
+startBtn.addEventListener('click', () => {
+  if (motionGranted && connected && peer) sendMsg(peer, { kind: 'start' });
+  startView.classList.add('hidden');
+  baitView.classList.remove('hidden');
+});
+
 // Drop loopback ICE candidates before shipping the answer through the relay.
 function trimSdp(sdp: string): string {
   return sdp
@@ -310,10 +320,10 @@ async function connect(): Promise<void> {
     onOpen: () => {
       connected = true;
       // Pairing is done — if we're still on the pairing screen, move on to the
-      // bait picker now that the game is reachable.
+      // "Start game" screen now that the game is reachable.
       if (!pairing.classList.contains('hidden')) {
         pairing.classList.add('hidden');
-        baitView.classList.remove('hidden');
+        startView.classList.remove('hidden');
       }
       // If a bait was chosen before the link opened, deliver it now so the
       // game leaves its "pick a bait" state.

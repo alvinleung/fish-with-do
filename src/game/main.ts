@@ -31,21 +31,11 @@ const canvas = $('game') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 const statusEl = $('status');
 const debugEl = $('debug');
-const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
-const pairPanel = $('pairPanel');
-const qrHint = $('qrHint');
 const soundHint = $('soundHint') as HTMLButtonElement;
-const startGameBtn = $('startGameBtn') as HTMLButtonElement;
 const pairWrap = $('pairWrap');
-const pairToggle = $('pairToggle') as HTMLButtonElement;
 
-// Show/hide the centered pairing overlay. "Start game" dismisses it so the whole
-// pond is free; the floating "Pairing" chip brings it back for a re-scan or a
-// fresh set of codes.
-function setPairingVisible(show: boolean): void {
-  pairWrap.classList.toggle('hidden', !show);
-  pairToggle.classList.toggle('hidden', show);
-}
+// True once any phone has pressed "Start game"; the QR screen stays up until then.
+let gameStarted = false;
 
 // Browsers block Web Audio until a user gesture on THIS page. Tap the pill (or
 // press any key) to unlock the shared sound so solo/phone play isn't silent.
@@ -262,6 +252,9 @@ const phones: Record<PlayerId, { x: number; y: number; v: number; frames: number
 };
 const keys = new Set<string>();
 const KEY_X: Record<string, number> = { a: -1, arrowleft: -1, d: 1, arrowright: 1 };
+// P1 has a keyboard fallback for desktop; set once any P1 key is pressed so an
+// unpaired (no-phone) P1 still reveals its rod when someone starts playing it.
+let p1KeyboardUsed = false;
 
 function readInputFor(id: PlayerId): { x: number; v: number } {
   const ph = phones[id];
@@ -284,6 +277,9 @@ function readInputFor(id: PlayerId): { x: number; v: number } {
 window.addEventListener('keydown', (e) => {
   enableSound();
   const k = e.key.toLowerCase();
+  if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown', ' ', 't'].includes(k)) {
+    p1KeyboardUsed = true;
+  }
   if (k === ' ' && !e.repeat) handleTap(players[0]);
   if (k === 't' && !e.repeat) handleThrow(players[0]);
   if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown'].includes(k) || k === ' ') {
@@ -610,6 +606,7 @@ function sceneView(): Scene {
     players: players.map((p) => ({
       id: p.id,
       color: p.layout.color,
+      visible: p.connected || (p.id === 1 && p1KeyboardUsed),
       state: p.state,
       rodAngle: p.rodAngle,
       bobber: { ...p.bobber },
@@ -748,26 +745,36 @@ function handleData(id: PlayerId, m: Msg): void {
   } else if (m.kind === 'bait') {
     players[id - 1].bait = m.id;
     handleTap(players[id - 1]);
+  } else if (m.kind === 'start') {
+    onPlayerStart();
   }
+}
+
+// A phone pressed "Start game" — the pairing phase is over, so dismiss the QR
+// screen and free up the whole pond.
+function onPlayerStart(): void {
+  if (gameStarted) return;
+  gameStarted = true;
+  pairWrap.classList.add('hidden');
+  updateStatus();
 }
 
 function updateStatus(): void {
   const c1 = players[0].connected;
   const c2 = players[1].connected;
   const n = (c1 ? 1 : 0) + (c2 ? 1 : 0);
-  statusEl.textContent =
-    n === 2
-      ? 'Both players connected — happy fishing!'
+  statusEl.textContent = gameStarted
+    ? 'Fishing!'
+    : n === 2
+      ? 'Both players in — press Start on your phones.'
       : n === 1
-        ? 'Fishing! ' + (c1 ? 'P1' : 'P2') + ' is in — scan the other QR to join as a rival.'
+        ? (c1 ? 'P1' : 'P2') + ' is in — scan the other QR to join (or play solo).'
         : 'Scan a QR to join — play solo, or add a 2nd phone for 1v1.';
-  // Collapse the pairing panel to just the "New codes" button once both are in,
-  // so it stops covering the players' HUD corners. A solo player keeps it open
-  // so a rival can still scan in later.
-  pairPanel.classList.toggle('settled', n === 2);
 }
 
 function resetPlayers(): void {
+  gameStarted = false;
+  p1KeyboardUsed = false;
   for (const p of players) {
     p.connected = false;
     p.state = 'baiting';
@@ -810,17 +817,9 @@ function resetPlayers(): void {
 function setPairUI(id: PlayerId): void {
   const code = links[id].room;
   const qrEl = $('pairQR' + id) as HTMLImageElement;
-  const urlEl = $('linkUrl' + id) as HTMLInputElement;
   const url = location.origin + '/controller?room=' + code + '&p=' + id;
-  const display = 'https://' + location.host + '/controller?room=' + code + '&p=' + id;
-  (
-    $('roomCode' + id) as HTMLElement
-  ).textContent = code;
-  urlEl.value = display;
-  $('pairPanel').classList.remove('settled');
   void toDataURL(url, { width: 280, margin: 1, errorCorrectionLevel: 'M' }).then((src) => {
     qrEl.src = src;
-    (qrEl.parentElement as HTMLElement).classList.remove('hidden');
   });
 }
 
@@ -832,43 +831,13 @@ function startSession(): void {
     L.peer = null;
     L.room = '';
   }
-  pairPanel.classList.remove('hidden');
-  setPairingVisible(true);
-  qrHint.textContent =
-    'Player 1 (red) → left code · Player 2 (blue) → right code. Solo or 1v1.';
+  pairWrap.classList.remove('hidden');
   updateStatus();
   for (const id of [1, 2] as PlayerId[]) {
     links[id].room = makeRoom();
     setPairUI(id);
     setupPlayerLink(id).catch(() => {});
   }
-}
-
-newSessionBtn.addEventListener('click', () => {
-  enableSound();
-  startSession();
-});
-
-startGameBtn.addEventListener('click', () => {
-  enableSound();
-  setPairingVisible(false);
-});
-
-pairToggle.addEventListener('click', () => {
-  enableSound();
-  setPairingVisible(true);
-});
-
-for (const id of [1, 2] as PlayerId[]) {
-  const btn = $('copyUrlBtn' + id) as HTMLButtonElement;
-  btn.addEventListener('click', () => {
-    const urlEl = $('linkUrl' + id) as HTMLInputElement;
-    void navigator.clipboard?.writeText(urlEl.value).catch(() => {});
-    btn.textContent = 'Copied';
-    window.setTimeout(() => {
-      btn.textContent = 'Copy';
-    }, 1400);
-  });
 }
 
 // Generate the QR codes as soon as the page loads.

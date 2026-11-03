@@ -18,7 +18,10 @@ export type BaitMsg = { kind: 'bait'; id: string };
 // Game -> phone: a catch landed; the phone shows it in the success state. Only
 // id + size cross the wire — the phone looks the rest up in the shared table.
 export type CatchMsg = { kind: 'catch'; id: string; size: number };
-export type Msg = CtrlMsg | TapMsg | ThrowMsg | HapticMsg | HelloMsg | BaitMsg | CatchMsg;
+// Phone -> game: the player tapped "Start game". The game dismisses its pairing
+// screen once any player starts.
+export type StartMsg = { kind: 'start' };
+export type Msg = CtrlMsg | TapMsg | ThrowMsg | HapticMsg | HelloMsg | BaitMsg | CatchMsg | StartMsg;
 
 // How many degrees of phone tilt map to a full deflection (-1..1).
 export const MAX_TILT_DEG = 30;
