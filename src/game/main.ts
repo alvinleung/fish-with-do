@@ -125,6 +125,7 @@ interface Player {
   inSpot: boolean; // is the hook inside the band right now
   progress: number; // 0..1 — net catch progress (1 = landed, 0 = escaped)
   reelR: number; // live crank 0..1 (drives the shared reel sound)
+  smoothV: number; // low-passed crank velocity (rad/s) so the meter is steady
   rodShake: number;
   crankAcc: number;
   crankNotch: number;
@@ -163,6 +164,7 @@ function makePlayer(id: PlayerId, layout: PlayerLayout): Player {
     inSpot: false,
     progress: 0,
     reelR: 0,
+    smoothV: 0,
     rodShake: 0,
     crankAcc: 0,
     crankNotch: 0,
@@ -320,6 +322,7 @@ function doStrike(p: Player): void {
   p.burstT = 1.4 + Math.random() * 1.6; // first surge comes in a beat
   p.crankAcc = 0;
   p.crankNotch = 0;
+  p.smoothV = 0;
   addRipple(p, p.bobber.x, p.bobber.y, 34);
 }
 
@@ -502,9 +505,12 @@ function updatePlayer(p: Player, dt: number): void {
       }
 
       // The reeling hook: your crank speed sets where it sits (0 = not turning,
-      // 1 = full crank). Scaled by REEL_SENSITIVITY so reeling is less sensitive
-      // (turn more to move it), and smoothed so speed wobbles don't yank it.
-      const target = clamp(input.v / (MAX_CRANK_RAD_S * REEL_SENSITIVITY), 0, 1);
+      // 1 = full crank), scaled by REEL_SENSITIVITY so reeling is less sensitive
+      // (turn more to move it). The raw crank velocity is low-passed first so the
+      // meter follows a steady speed instead of the per-packet jitter from the
+      // phone, then smoothed again — the two stages keep it calm.
+      p.smoothV += (input.v - p.smoothV) * (1 - Math.exp(-dt * 6));
+      const target = clamp(p.smoothV / (MAX_CRANK_RAD_S * REEL_SENSITIVITY), 0, 1);
       p.reelSpeed += (target - p.reelSpeed) * (1 - Math.exp(-dt * 5));
 
       // The sweet-spot band drifts up and down gently; harder fish move it a bit
@@ -775,6 +781,7 @@ function resetPlayers(): void {
     p.inSpot = false;
     p.progress = 0;
     p.reelR = 0;
+    p.smoothV = 0;
     p.rodShake = 0;
     p.crankAcc = 0;
     p.crankNotch = 0;
