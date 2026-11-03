@@ -112,14 +112,32 @@ button:active {
   display: block;
 }
 
-/* Pairing panel — floats top-right so the shared pond stays visible behind it. */
+/* Pairing panel — centered over the pond until you press "Start game". */
 #pairWrap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+  max-height: calc(100vh - 90px);
+  overflow: auto;
+}
+
+/* Floating chip (top-right) that re-opens the pairing panel once it's dismissed. */
+.pair-toggle {
   position: absolute;
   top: 56px;
   right: 14px;
   z-index: 3;
-  max-height: calc(100vh - 72px);
-  overflow: auto;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
 }
 
 .panel {

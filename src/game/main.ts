@@ -35,6 +35,17 @@ const newSessionBtn = $('newSessionBtn') as HTMLButtonElement;
 const pairPanel = $('pairPanel');
 const qrHint = $('qrHint');
 const soundHint = $('soundHint') as HTMLButtonElement;
+const startGameBtn = $('startGameBtn') as HTMLButtonElement;
+const pairWrap = $('pairWrap');
+const pairToggle = $('pairToggle') as HTMLButtonElement;
+
+// Show/hide the centered pairing overlay. "Start game" dismisses it so the whole
+// pond is free; the floating "Pairing" chip brings it back for a re-scan or a
+// fresh set of codes.
+function setPairingVisible(show: boolean): void {
+  pairWrap.classList.toggle('hidden', !show);
+  pairToggle.classList.toggle('hidden', show);
+}
 
 // Browsers block Web Audio until a user gesture on THIS page. Tap the pill (or
 // press any key) to unlock the shared sound so solo/phone play isn't silent.
@@ -822,6 +833,7 @@ function startSession(): void {
     L.room = '';
   }
   pairPanel.classList.remove('hidden');
+  setPairingVisible(true);
   qrHint.textContent =
     'Player 1 (red) → left code · Player 2 (blue) → right code. Solo or 1v1.';
   updateStatus();
@@ -835,6 +847,16 @@ function startSession(): void {
 newSessionBtn.addEventListener('click', () => {
   enableSound();
   startSession();
+});
+
+startGameBtn.addEventListener('click', () => {
+  enableSound();
+  setPairingVisible(false);
+});
+
+pairToggle.addEventListener('click', () => {
+  enableSound();
+  setPairingVisible(true);
 });
 
 for (const id of [1, 2] as PlayerId[]) {

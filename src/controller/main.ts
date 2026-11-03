@@ -23,6 +23,7 @@ const reelBgEl = $('reelBg') as HTMLImageElement;
 const reelFgEl = $('reelFg') as HTMLImageElement;
 const baitView = $('baitView');
 const baitGrid = $('baitGrid');
+const pairing = $('pairing');
 const catchView = $('catchView');
 const catchImg = $('catchImg') as HTMLImageElement;
 const catchName = $('catchName');
@@ -229,7 +230,7 @@ permBtn.addEventListener('click', async () => {
   motionGranted = true;
   phoneState = 'bait';
   perm.classList.add('hidden');
-  baitView.classList.remove('hidden');
+  pairing.classList.remove('hidden');
   startTilt((s) => {
     latest.x = s.x;
     latest.y = s.y;
@@ -308,6 +309,12 @@ async function connect(): Promise<void> {
     },
     onOpen: () => {
       connected = true;
+      // Pairing is done — if we're still on the pairing screen, move on to the
+      // bait picker now that the game is reachable.
+      if (!pairing.classList.contains('hidden')) {
+        pairing.classList.add('hidden');
+        baitView.classList.remove('hidden');
+      }
       // If a bait was chosen before the link opened, deliver it now so the
       // game leaves its "pick a bait" state.
       if (pendingBait && peer) sendMsg(peer, { kind: 'bait', id: pendingBait });

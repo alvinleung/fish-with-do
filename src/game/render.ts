@@ -80,10 +80,13 @@ export interface Scene {
 const deg = (d: number): number => (d * Math.PI) / 180;
 
 export function rodAngleFor(aimX: number, side: 1 | -1): number {
-  // Right-side (P2) base: aim -1 = rod flat over the water, +1 = steep.
-  const base = deg(-112 + aimX * 38);
-  // Left-side (P1) is a horizontal mirror of the right side.
-  return side === 1 ? base : -base - Math.PI;
+  // Both players cast the same on-screen direction for the same tilt (aim -1 =
+  // left, +1 = right), matching their cast target. P2 leans up-left toward the
+  // pond; P1 is the mirrored image leaning up-right. Flip the aim for P1 so its
+  // tip also sweeps left→right with aim (the old mirror swept it the wrong way).
+  const aim = side === 1 ? aimX : -aimX;
+  const base = deg(-112 + aim * 38);
+  return side === 1 ? base : Math.PI - base;
 }
 
 export function rodTip(rodAngle: number, pivot: { x: number; y: number }): { x: number; y: number } {
