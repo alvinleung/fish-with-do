@@ -5,15 +5,17 @@ import carpImg from '../assets/fish-carp.png';
 import largemouthImg from '../assets/fish-largemouth.png';
 import salmonImg from '../assets/fish-salmon.png';
 import troutImg from '../assets/fish-trout.png';
+import unsagiImg from '../assets/random-unsagi.png';
 import cdImg from '../assets/junk-cd.png';
 import bagImg from '../assets/junk-bag.png';
-import bag1Img from '../assets/junk-bag-1.png';
+import ipadImg from '../assets/loot-ipad.png';
+import smiskiImg from '../assets/loot-smiski.png';
 import wormImg from '../assets/bait-worm.png';
 import cornImg from '../assets/bait-corn.png';
 import maggotsImg from '../assets/bait-maggots.png';
 import shrimpImg from '../assets/bait-shrimp.png';
 
-export type CatchKind = 'fish' | 'junk';
+export type CatchKind = 'fish' | 'junk' | 'loot';
 
 export interface CatchDef {
   id: string;
@@ -31,11 +33,13 @@ export interface CatchDef {
 export const CATCHES: CatchDef[] = [
   { id: 'trout', name: 'Rainbow Trout', img: troutImg, kind: 'fish', strength: 0.34, sizeMin: 20, sizeMax: 45, sizeUnit: 'cm', points: 10, weight: 26 },
   { id: 'carp', name: 'Common Carp', img: carpImg, kind: 'fish', strength: 0.55, sizeMin: 40, sizeMax: 90, sizeUnit: 'cm', points: 25, weight: 20 },
+  { id: 'unsagi', name: 'Unsagi', img: unsagiImg, kind: 'fish', strength: 0.58, sizeMin: 30, sizeMax: 70, sizeUnit: 'cm', points: 35, weight: 14 },
   { id: 'largemouth', name: 'Largemouth Bass', img: largemouthImg, kind: 'fish', strength: 0.68, sizeMin: 30, sizeMax: 75, sizeUnit: 'cm', points: 40, weight: 16 },
   { id: 'salmon', name: 'King Salmon', img: salmonImg, kind: 'fish', strength: 0.85, sizeMin: 45, sizeMax: 110, sizeUnit: 'cm', points: 60, weight: 11 },
   { id: 'cd', name: 'Old CD', img: cdImg, kind: 'junk', strength: 0.42, sizeMin: 12, sizeMax: 12, sizeUnit: 'cm', points: 0, weight: 10 },
   { id: 'bag', name: 'Plastic Bag', img: bagImg, kind: 'junk', strength: 0.28, sizeMin: 15, sizeMax: 30, sizeUnit: 'cm', points: 0, weight: 10 },
-  { id: 'bag1', name: 'Mystery Bag', img: bag1Img, kind: 'junk', strength: 0.5, sizeMin: 20, sizeMax: 40, sizeUnit: 'cm', points: 0, weight: 7 },
+  { id: 'ipad', name: 'Lost iPad', img: ipadImg, kind: 'loot', strength: 0.3, sizeMin: 25, sizeMax: 25, sizeUnit: 'cm', points: 50, weight: 5 },
+  { id: 'smiski', name: 'Smiski', img: smiskiImg, kind: 'loot', strength: 0.35, sizeMin: 20, sizeMax: 35, sizeUnit: 'cm', points: 45, weight: 4 },
 ];
 
 export function catchById(id: string): CatchDef {

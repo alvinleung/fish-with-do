@@ -273,11 +273,14 @@ for (const b of BAITS) {
 function showCatch(id: string, size: number): void {
   const c = catchById(id);
   catchImg.src = c.img;
-  catchName.textContent = c.kind === 'junk' ? `Junk: ${c.name}` : c.name;
+  catchName.textContent =
+    c.kind === 'junk' ? `Junk: ${c.name}` : c.kind === 'loot' ? `Loot: ${c.name}` : c.name;
   catchDetail.textContent =
     c.kind === 'junk'
       ? `${size} ${c.sizeUnit} — keep the water clean`
-      : `${size} ${c.sizeUnit} · ${c.points} pts`;
+      : c.kind === 'loot'
+        ? `${size} ${c.sizeUnit} · ${c.points} pts — nice find!`
+        : `${size} ${c.sizeUnit} · ${c.points} pts`;
   phoneState = 'catch';
   wheelView.classList.add('hidden');
   catchView.classList.remove('hidden');
