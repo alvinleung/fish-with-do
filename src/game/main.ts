@@ -41,6 +41,21 @@ const dlgPortraitEl = $('dlgPortrait') as HTMLImageElement;
 const dlgChoicesEl = $('dlgChoices');
 const dlgYesEl = $('dlgYes') as HTMLButtonElement;
 const dlgNoEl = $('dlgNo') as HTMLButtonElement;
+const dayEnd = $('dayEnd');
+const dayEndTitle = $('dayEndTitle');
+const dayEndList1 = $('dayEndList1');
+const dayEndList2 = $('dayEndList2');
+const dayEndTotal1 = $('dayEndTotal1');
+const dayEndTotal2 = $('dayEndTotal2');
+const dayEndBtn = $('dayEndBtn') as HTMLButtonElement;
+const gameOver = $('gameOver');
+const gameOverDays1 = $('gameOverDays1');
+const gameOverDays2 = $('gameOverDays2');
+const gameOverBest1 = $('gameOverBest1');
+const gameOverBest2 = $('gameOverBest2');
+const gameOverTotal1 = $('gameOverTotal1');
+const gameOverTotal2 = $('gameOverTotal2');
+const playAgainBtn = $('playAgainBtn') as HTMLButtonElement;
 
 // True once any phone has pressed "Start game"; the QR screen stays up until then.
 let gameStarted = false;
@@ -115,6 +130,29 @@ interface ActiveFish {
 }
 
 // Per-player game state. Only the shared clock is global.
+// ---- Day / round: 3-minute days, 3 days per game, then a final screen -------
+const DAY_LEN = 180; // seconds per day/round
+const TOTAL_DAYS = 3; // days in a game before the final results screen
+const DAY_END_STEP = 0.6; // seconds between item reveals on the end screen
+const DAY_END_LINGER = 1.6; // pause after the last item before the continue button
+
+type Phase = 'playing' | 'dayEnd' | 'gameOver';
+
+// A single item landed in the current day (shown one-by-one on the end screen).
+interface DayItem {
+  id: string;
+  name: string;
+  img: string;
+  price: number;
+  size: number;
+}
+
+// A completed day's payout.
+interface DayResult {
+  money: number;
+  count: number;
+}
+
 interface Player {
   id: PlayerId;
   layout: PlayerLayout;
@@ -143,8 +181,8 @@ interface Player {
   crankNotch: number;
   flash: string | null;
   flashT: number;
-  points: number;
-  catchCount: number;
+  dayItems: DayItem[]; // items landed this day (feeds the end-of-day market)
+  dayResults: DayResult[]; // completed days, one { money, count } per day
   lastName: string | null;
   bait: string | null;
 }
@@ -178,15 +216,21 @@ function makePlayer(id: PlayerId, layout: PlayerLayout): Player {
     crankNotch: 0,
     flash: null,
     flashT: 0,
-    points: 0,
-    catchCount: 0,
+    dayItems: [],
+    dayResults: [],
     lastName: null,
     bait: null,
   };
 }
 
 const players: Player[] = [makePlayer(1, LAYOUTS[0]), makePlayer(2, LAYOUTS[1])];
-const G = { t: 0 };
+const G: {
+  t: number;
+  phase: Phase;
+  day: number;
+  timeLeft: number;
+  dayEndT: number;
+} = { t: 0, phase: 'playing', day: 1, timeLeft: DAY_LEN, dayEndT: 0 };
 
 // ---- Per-player effects ----------------------------------------------------
 function addRipple(p: Player, x: number, y: number, max: number): void {
@@ -490,8 +534,14 @@ function doStrike(p: Player): void {
 
 function doCatch(p: Player): void {
   const f = p.fish as ActiveFish;
-  p.points += f.def.points;
-  p.catchCount += 1;
+  // Bag the item with its fixed price; the end-of-day market pays it out.
+  p.dayItems.push({
+    id: f.def.id,
+    name: f.def.name,
+    img: f.def.img,
+    price: f.def.price,
+    size: f.size,
+  });
   p.lastName = f.def.name;
   p.fish = null;
   p.state = 'caught';
@@ -745,7 +795,17 @@ function updatePlayer(p: Player, dt: number): void {
 
 function update(dt: number): void {
   G.t += dt;
-  for (const p of players) updatePlayer(p, dt);
+  if (G.phase === 'playing') {
+    // The day clock only runs while someone is actually playing, so the pairing
+    // / intro time doesn't eat into the 3 minutes.
+    if (anyActive()) {
+      G.timeLeft -= dt;
+      if (G.timeLeft <= 0) startDayEnd();
+    }
+    for (const p of players) updatePlayer(p, dt);
+  } else if (G.phase === 'dayEnd') {
+    stepDayEnd(dt);
+  }
   stepDialogue(dt);
 }
 
@@ -753,6 +813,7 @@ function update(dt: number): void {
 function sceneView(): Scene {
   return {
     t: G.t,
+    timeLeft: G.timeLeft,
     players: players.map((p) => ({
       id: p.id,
       color: p.layout.color,
@@ -766,8 +827,10 @@ function sceneView(): Scene {
       rodShake: p.rodShake,
       tension: p.tension,
       progress: p.progress,
-      points: p.points,
-      catchCount: p.catchCount,
+      day: G.day,
+      dayTotal: TOTAL_DAYS,
+      dayItems: p.dayItems.length,
+      money: p.dayResults.reduce((s, d) => s + d.money, 0),
       lastName: p.lastName,
       flash: p.flash,
       flashT: p.flash ? Math.min(1, p.flashT) : 0,
@@ -947,8 +1010,8 @@ function resetPlayers(): void {
     p.crankNotch = 0;
     p.flash = null;
     p.flashT = 0;
-    p.points = 0;
-    p.catchCount = 0;
+    p.dayItems = [];
+    p.dayResults = [];
     p.lastName = null;
     p.bait = null;
   }
@@ -981,6 +1044,149 @@ function startSession(): void {
     setupPlayerLink(id).catch(() => {});
   }
 }
+
+// ---- Day / round: settle, end-of-day market, next day, final results --------
+function anyActive(): boolean {
+  return players.some((p) => p.connected) || p1KeyboardUsed;
+}
+
+// Clear in-progress actions (mid-fight / mid-cast) so the pond is calm behind
+// the end screen. Players who picked a bait go to 'idle' (ready to cast again);
+// anyone still choosing bait stays in 'baiting'.
+function settlePlayers(): void {
+  for (const p of players) {
+    if (p.state !== 'baiting') {
+      p.state = 'idle';
+      p.stateT = 0;
+    }
+    p.fish = null;
+    p.cast = null;
+    p.bursting = false;
+    p.burstT = 0;
+    p.tension = 0;
+    p.progress = 0;
+    p.ripples = [];
+    p.particles = [];
+  }
+}
+
+let dayEndShown = 0; // items revealed so far on the current end screen
+
+function startDayEnd(): void {
+  G.phase = 'dayEnd';
+  G.dayEndT = 0;
+  dayEndShown = 0;
+  settlePlayers();
+  for (const p of players) {
+    const money = p.dayItems.reduce((s, it) => s + it.price, 0);
+    p.dayResults.push({ money, count: p.dayItems.length });
+  }
+  dayEndTitle.textContent = `End of Day ${G.day}`;
+  dayEndBtn.textContent = G.day < TOTAL_DAYS ? `Start Day ${G.day + 1}` : 'Final results';
+  dayEndBtn.classList.add('hidden');
+  dayEndList1.innerHTML = '';
+  dayEndList2.innerHTML = '';
+  dayEndTotal1.textContent = '$0';
+  dayEndTotal2.textContent = '$0';
+  for (let pi = 0; pi < 2; pi++) {
+    const list = pi === 0 ? dayEndList1 : dayEndList2;
+    if (players[pi].dayItems.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'dayend-empty';
+      li.textContent = 'No catches this day.';
+      list.appendChild(li);
+    }
+  }
+  dayEnd.classList.remove('hidden');
+}
+
+function appendDayItem(pi: number, it: DayItem): void {
+  const list = pi === 0 ? dayEndList1 : dayEndList2;
+  const li = document.createElement('li');
+  const img = document.createElement('img');
+  img.src = it.img;
+  img.alt = it.name;
+  const name = document.createElement('span');
+  name.textContent = it.name;
+  const price = document.createElement('b');
+  price.textContent = '+$' + it.price;
+  li.append(img, name, price);
+  list.appendChild(li);
+}
+
+function stepDayEnd(dt: number): void {
+  G.dayEndT += dt;
+  const lists = [players[0].dayItems, players[1].dayItems];
+  const maxItems = Math.max(lists[0].length, lists[1].length);
+  const target = Math.min(maxItems, Math.floor(G.dayEndT / DAY_END_STEP));
+  if (target > dayEndShown) {
+    for (let k = dayEndShown; k < target; k++) {
+      for (let pi = 0; pi < 2; pi++) {
+        const it = lists[pi][k];
+        if (it) {
+          appendDayItem(pi, it);
+          const running = lists[pi].slice(0, k + 1).reduce((s, x) => s + x.price, 0);
+          (pi === 0 ? dayEndTotal1 : dayEndTotal2).textContent = '$' + running;
+        }
+      }
+    }
+    dayEndShown = target;
+  }
+  if (dayEndShown >= maxItems && G.dayEndT - maxItems * DAY_END_STEP >= DAY_END_LINGER) {
+    dayEndBtn.classList.remove('hidden');
+  }
+}
+
+function startNextDay(): void {
+  G.day += 1;
+  G.timeLeft = DAY_LEN;
+  G.dayEndT = 0;
+  G.phase = 'playing';
+  for (const p of players) p.dayItems = [];
+  dayEnd.classList.add('hidden');
+}
+
+function showGameOver(): void {
+  G.phase = 'gameOver';
+  dayEnd.classList.add('hidden');
+  for (let pi = 0; pi < 2; pi++) {
+    const p = players[pi];
+    const daysEl = pi === 0 ? gameOverDays1 : gameOverDays2;
+    const bestEl = pi === 0 ? gameOverBest1 : gameOverBest2;
+    const totalEl = pi === 0 ? gameOverTotal1 : gameOverTotal2;
+    daysEl.innerHTML = '';
+    p.dayResults.forEach((r, i) => {
+      const li = document.createElement('li');
+      li.textContent = `Day ${i + 1}: $${r.money} · ${r.count} item${r.count === 1 ? '' : 's'}`;
+      daysEl.appendChild(li);
+    });
+    const best = p.dayResults.reduce((m, r) => Math.max(m, r.money), 0);
+    const total = p.dayResults.reduce((s, r) => s + r.money, 0);
+    bestEl.textContent = `Best day: $${best}`;
+    totalEl.textContent = `Grand total: $${total}`;
+  }
+  gameOver.classList.remove('hidden');
+}
+
+function startNewGame(): void {
+  G.day = 1;
+  G.timeLeft = DAY_LEN;
+  G.dayEndT = 0;
+  G.phase = 'playing';
+  for (const p of players) {
+    p.dayItems = [];
+    p.dayResults = [];
+    p.lastName = null;
+  }
+  gameOver.classList.add('hidden');
+  dayEnd.classList.add('hidden');
+}
+
+dayEndBtn.addEventListener('click', () => {
+  if (G.day < TOTAL_DAYS) startNextDay();
+  else showGameOver();
+});
+playAgainBtn.addEventListener('click', startNewGame);
 
 // Generate the QR codes as soon as the page loads, then play the intro.
 startSession();

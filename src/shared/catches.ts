@@ -26,20 +26,20 @@ export interface CatchDef {
   sizeMin: number;
   sizeMax: number;
   sizeUnit: string;
-  points: number;
+  price: number; // fixed sale value ($) — the day-end market pays this per item
   weight: number; // relative bite probability
 }
 
 export const CATCHES: CatchDef[] = [
-  { id: 'trout', name: 'Rainbow Trout', img: troutImg, kind: 'fish', strength: 0.34, sizeMin: 20, sizeMax: 45, sizeUnit: 'cm', points: 10, weight: 26 },
-  { id: 'carp', name: 'Common Carp', img: carpImg, kind: 'fish', strength: 0.55, sizeMin: 40, sizeMax: 90, sizeUnit: 'cm', points: 25, weight: 20 },
-  { id: 'unsagi', name: 'Unsagi', img: unsagiImg, kind: 'fish', strength: 0.58, sizeMin: 30, sizeMax: 70, sizeUnit: 'cm', points: 35, weight: 14 },
-  { id: 'largemouth', name: 'Largemouth Bass', img: largemouthImg, kind: 'fish', strength: 0.68, sizeMin: 30, sizeMax: 75, sizeUnit: 'cm', points: 40, weight: 16 },
-  { id: 'salmon', name: 'King Salmon', img: salmonImg, kind: 'fish', strength: 0.85, sizeMin: 45, sizeMax: 110, sizeUnit: 'cm', points: 60, weight: 11 },
-  { id: 'cd', name: 'Old CD', img: cdImg, kind: 'junk', strength: 0.42, sizeMin: 12, sizeMax: 12, sizeUnit: 'cm', points: 0, weight: 10 },
-  { id: 'bag', name: 'Plastic Bag', img: bagImg, kind: 'junk', strength: 0.28, sizeMin: 15, sizeMax: 30, sizeUnit: 'cm', points: 0, weight: 10 },
-  { id: 'ipad', name: 'Lost iPad', img: ipadImg, kind: 'loot', strength: 0.3, sizeMin: 25, sizeMax: 25, sizeUnit: 'cm', points: 50, weight: 5 },
-  { id: 'smiski', name: 'Smiski', img: smiskiImg, kind: 'loot', strength: 0.35, sizeMin: 20, sizeMax: 35, sizeUnit: 'cm', points: 45, weight: 4 },
+  { id: 'trout', name: 'Rainbow Trout', img: troutImg, kind: 'fish', strength: 0.34, sizeMin: 20, sizeMax: 45, sizeUnit: 'cm', price: 10, weight: 26 },
+  { id: 'carp', name: 'Common Carp', img: carpImg, kind: 'fish', strength: 0.55, sizeMin: 40, sizeMax: 90, sizeUnit: 'cm', price: 25, weight: 20 },
+  { id: 'unsagi', name: 'Unsagi', img: unsagiImg, kind: 'fish', strength: 0.58, sizeMin: 30, sizeMax: 70, sizeUnit: 'cm', price: 35, weight: 14 },
+  { id: 'largemouth', name: 'Largemouth Bass', img: largemouthImg, kind: 'fish', strength: 0.68, sizeMin: 30, sizeMax: 75, sizeUnit: 'cm', price: 40, weight: 16 },
+  { id: 'salmon', name: 'King Salmon', img: salmonImg, kind: 'fish', strength: 0.85, sizeMin: 45, sizeMax: 110, sizeUnit: 'cm', price: 60, weight: 11 },
+  { id: 'cd', name: 'Old CD', img: cdImg, kind: 'junk', strength: 0.42, sizeMin: 12, sizeMax: 12, sizeUnit: 'cm', price: 4, weight: 10 },
+  { id: 'bag', name: 'Plastic Bag', img: bagImg, kind: 'junk', strength: 0.28, sizeMin: 15, sizeMax: 30, sizeUnit: 'cm', price: 3, weight: 10 },
+  { id: 'ipad', name: 'Lost iPad', img: ipadImg, kind: 'loot', strength: 0.3, sizeMin: 25, sizeMax: 25, sizeUnit: 'cm', price: 150, weight: 5 },
+  { id: 'smiski', name: 'Smiski', img: smiskiImg, kind: 'loot', strength: 0.35, sizeMin: 20, sizeMax: 35, sizeUnit: 'cm', price: 120, weight: 4 },
 ];
 
 export function catchById(id: string): CatchDef {

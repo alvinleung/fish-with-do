@@ -42,6 +42,48 @@
           </div>
         </div>
       </div>
+
+      <!-- End-of-day market: item-by-item tally for each player -->
+      <div id="dayEnd" class="end-screen hidden">
+        <div class="end-card">
+          <h2 id="dayEndTitle">End of Day 1</h2>
+          <div class="end-cols">
+            <div class="end-col">
+              <h3 class="p1">Player 1</h3>
+              <ul class="dayend-list" id="dayEndList1"></ul>
+              <div class="end-total" id="dayEndTotal1">$0</div>
+            </div>
+            <div class="end-col">
+              <h3 class="p2">Player 2</h3>
+              <ul class="dayend-list" id="dayEndList2"></ul>
+              <div class="end-total" id="dayEndTotal2">$0</div>
+            </div>
+          </div>
+          <button id="dayEndBtn" class="end-btn hidden">Start Day 2</button>
+        </div>
+      </div>
+
+      <!-- Final results after the last day -->
+      <div id="gameOver" class="end-screen hidden">
+        <div class="end-card">
+          <h2>Final Results</h2>
+          <div class="end-cols">
+            <div class="end-col">
+              <h3 class="p1">Player 1</h3>
+              <ul class="gameover-list" id="gameOverDays1"></ul>
+              <div class="end-sub" id="gameOverBest1">Best day: $0</div>
+              <div class="end-total" id="gameOverTotal1">Grand total: $0</div>
+            </div>
+            <div class="end-col">
+              <h3 class="p2">Player 2</h3>
+              <ul class="gameover-list" id="gameOverDays2"></ul>
+              <div class="end-sub" id="gameOverBest2">Best day: $0</div>
+              <div class="end-total" id="gameOverTotal2">Grand total: $0</div>
+            </div>
+          </div>
+          <button id="playAgainBtn" class="end-btn">Play again</button>
+        </div>
+      </div>
     </div>
     <script type="module" src="/src/game/main.ts"></script>
   </body>

@@ -277,10 +277,10 @@ function showCatch(id: string, size: number): void {
     c.kind === 'junk' ? `Junk: ${c.name}` : c.kind === 'loot' ? `Loot: ${c.name}` : c.name;
   catchDetail.textContent =
     c.kind === 'junk'
-      ? `${size} ${c.sizeUnit} — keep the water clean`
+      ? `${size} ${c.sizeUnit} · $${c.price} (scrap)`
       : c.kind === 'loot'
-        ? `${size} ${c.sizeUnit} · ${c.points} pts — nice find!`
-        : `${size} ${c.sizeUnit} · ${c.points} pts`;
+        ? `${size} ${c.sizeUnit} · $${c.price} — nice find!`
+        : `${size} ${c.sizeUnit} · $${c.price}`;
   phoneState = 'catch';
   wheelView.classList.add('hidden');
   catchView.classList.remove('hidden');

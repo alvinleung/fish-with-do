@@ -61,8 +61,10 @@ export interface PlayerScene {
   rodShake: number; // 0..1 rod-tug intensity (the fish pulling while not reeling)
   tension: number; // 0..1 — line tension (1 = the line snaps)
   progress: number; // 0..1 — how reeled in the fish is (1 = landed)
-  points: number;
-  catchCount: number;
+  day: number; // current day/round (1..dayTotal)
+  dayTotal: number; // number of days in the game
+  dayItems: number; // items landed this day
+  money: number; // earned so far from completed days ($)
   lastName: string | null;
   flash: string | null;
   flashT: number; // 0..1 life of the flash text
@@ -71,6 +73,7 @@ export interface PlayerScene {
 
 export interface Scene {
   t: number;
+  timeLeft: number; // seconds left in the current day
   players: PlayerScene[];
 }
 
@@ -113,6 +116,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
   for (const p of s.players) {
     if (p.visible) drawPlayerHud(ctx, s.t, p);
   }
+  drawDayClock(ctx, s);
 }
 
 function drawSky(ctx: CanvasRenderingContext2D, t: number): void {
@@ -370,7 +374,8 @@ function drawPlayerHud(ctx: CanvasRenderingContext2D, t: number, p: PlayerScene)
   ctx.font = '600 14px system-ui, sans-serif';
   ctx.fillStyle = 'rgba(226,236,250,0.9)';
   const score =
-    `Points ${p.points} · Catches ${p.catchCount}` + (p.lastName ? ` · Last: ${p.lastName}` : '');
+    `Day ${p.day}/${p.dayTotal} · Items ${p.dayItems} · $${p.money}` +
+    (p.lastName ? ` · Last: ${p.lastName}` : '');
   ctx.shadowColor = 'rgba(0,0,0,0.5)';
   ctx.shadowBlur = 5;
   ctx.fillText(score, p.layout.hudX, 60);
@@ -413,4 +418,26 @@ function drawPlayerHud(ctx: CanvasRenderingContext2D, t: number, p: PlayerScene)
     ctx.globalAlpha = 1;
     ctx.textAlign = aRight ? 'right' : 'left';
   }
+}
+
+// Top-center day/round timer. Pulses red in the final half-minute.
+function drawDayClock(ctx: CanvasRenderingContext2D, s: Scene): void {
+  const p0 = s.players[0];
+  if (!p0) return;
+  const tl = Math.max(0, s.timeLeft);
+  const mm = Math.floor(tl / 60);
+  const ss = Math.floor(tl % 60).toString().padStart(2, '0');
+  const urgent = tl <= 30;
+  ctx.font = '800 22px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = urgent
+    ? `rgba(255,96,96,${(0.7 + 0.3 * Math.sin(s.t * 9)).toFixed(3)})`
+    : 'rgba(226,236,250,0.92)';
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = 6;
+  ctx.fillText(`Day ${p0.day}/${p0.dayTotal}   ${mm}:${ss}`, W / 2, 28);
+  ctx.shadowBlur = 0;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
 }
