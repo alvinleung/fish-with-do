@@ -74,6 +74,7 @@ export interface PlayerScene {
 export interface Scene {
   t: number;
   timeLeft: number; // seconds left in the current day
+  dayProgress: number; // 0 (day start) .. 1 (day end) — drives the time-of-day sky
   players: PlayerScene[];
 }
 
@@ -102,8 +103,11 @@ export function setRodUrl(url: string): void {
 }
 
 export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
-  drawSky(ctx, s.t);
-  drawWater(ctx, s.t);
+  const pal = dayPalette(s.dayProgress);
+  const sp = sunPosition(s.dayProgress, pal.night);
+  drawSky(ctx, s.t, pal, sp);
+  drawWater(ctx, s.t, pal, sp);
+  drawAmbient(ctx, pal.night);
   for (const p of s.players) {
     if (!p.visible) continue;
     drawRipples(ctx, p.ripples);
@@ -119,26 +123,134 @@ export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
   drawDayClock(ctx, s);
 }
 
-function drawSky(ctx: CanvasRenderingContext2D, t: number): void {
+// ---- Time of day: the sky, water and sun shift gradually as each day elapses --
+type Rgb = { r: number; g: number; b: number };
+
+function hexToRgb(hex: string): Rgb {
+  const h = hex.replace('#', '');
+  return { r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16), b: parseInt(h.slice(4, 6), 16) };
+}
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+const lerpRgb = (a: Rgb, b: Rgb, t: number): Rgb => ({
+  r: lerp(a.r, b.r, t),
+  g: lerp(a.g, b.g, t),
+  b: lerp(a.b, b.b, t),
+});
+const rgbStr = (c: Rgb): string => `rgb(${c.r | 0},${c.g | 0},${c.b | 0})`;
+const rgbaStr = (c: Rgb, a: number): string => `rgba(${c.r | 0},${c.g | 0},${c.b | 0},${a.toFixed(3)})`;
+
+interface DayKey {
+  skyTop: string;
+  skyMid: string;
+  horizon: string;
+  sun: string;
+  waterTop: string;
+  waterBot: string;
+  mountains: string;
+  night: number; // 0..1 — darkness (tint, stars, sun fade, moon)
+}
+
+// Keyframes across one day: sunrise -> morning -> midday -> golden hour -> dusk.
+const DAY_KEYS: DayKey[] = [
+  { skyTop: '#2a3560', skyMid: '#8a6fa8', horizon: '#f2a65e', sun: '#ffd9a0', waterTop: '#3c6a94', waterBot: '#0a2140', mountains: '#1a2b48', night: 0.32 },
+  { skyTop: '#3f74b8', skyMid: '#7fb0e2', horizon: '#dceaf6', sun: '#fff2c4', waterTop: '#4186ba', waterBot: '#0d2c52', mountains: '#24406a', night: 0.04 },
+  { skyTop: '#3f92da', skyMid: '#8fd0f2', horizon: '#e6f4ff', sun: '#ffffff', waterTop: '#4a97cf', waterBot: '#123a66', mountains: '#2a4d7a', night: 0.0 },
+  { skyTop: '#4a5a9a', skyMid: '#d98a5a', horizon: '#ffb15e', sun: '#ffcf8a', waterTop: '#54779f', waterBot: '#10294a', mountains: '#2a3a5e', night: 0.1 },
+  { skyTop: '#141838', skyMid: '#3a3a6e', horizon: '#b56a6e', sun: '#e8a98a', waterTop: '#24406a', waterBot: '#061228', mountains: '#101a30', night: 0.72 },
+];
+
+interface DayPalette {
+  skyTop: Rgb;
+  skyMid: Rgb;
+  horizon: Rgb;
+  sun: Rgb;
+  waterTop: Rgb;
+  waterBot: Rgb;
+  mountains: Rgb;
+  night: number;
+}
+
+function dayPalette(dp: number): DayPalette {
+  dp = clamp01(dp);
+  const seg = (DAY_KEYS.length - 1) * dp;
+  const i = Math.min(DAY_KEYS.length - 2, Math.floor(seg));
+  const f = seg - i;
+  const a = DAY_KEYS[i];
+  const b = DAY_KEYS[i + 1];
+  return {
+    skyTop: lerpRgb(hexToRgb(a.skyTop), hexToRgb(b.skyTop), f),
+    skyMid: lerpRgb(hexToRgb(a.skyMid), hexToRgb(b.skyMid), f),
+    horizon: lerpRgb(hexToRgb(a.horizon), hexToRgb(b.horizon), f),
+    sun: lerpRgb(hexToRgb(a.sun), hexToRgb(b.sun), f),
+    waterTop: lerpRgb(hexToRgb(a.waterTop), hexToRgb(b.waterTop), f),
+    waterBot: lerpRgb(hexToRgb(a.waterBot), hexToRgb(b.waterBot), f),
+    mountains: lerpRgb(hexToRgb(a.mountains), hexToRgb(b.mountains), f),
+    night: lerp(a.night, b.night, f),
+  };
+}
+
+// The sun arcs left->right and low->high->low across the day; it fades out as night falls.
+function sunPosition(dp: number, night: number): { x: number; y: number; alpha: number } {
+  dp = clamp01(dp);
+  const x = 120 + (W - 240) * dp;
+  const y = WATER_Y - 42 - Math.sin(dp * Math.PI) * 150;
+  return { x, y, alpha: clamp01(1 - night * 0.85) };
+}
+
+function drawSky(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  pal: DayPalette,
+  sp: { x: number; y: number; alpha: number }
+): void {
   const sky = ctx.createLinearGradient(0, 0, 0, WATER_Y);
-  sky.addColorStop(0, '#0e1a36');
-  sky.addColorStop(0.62, '#2d4f86');
-  sky.addColorStop(1, '#c8824d');
+  sky.addColorStop(0, rgbStr(pal.skyTop));
+  sky.addColorStop(0.62, rgbStr(pal.skyMid));
+  sky.addColorStop(1, rgbStr(pal.horizon));
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, WATER_Y);
 
-  const sunY = WATER_Y - 64;
-  const glow = ctx.createRadialGradient(170, sunY, 6, 170, sunY, 150);
-  glow.addColorStop(0, 'rgba(255,196,120,0.55)');
-  glow.addColorStop(1, 'rgba(255,196,120,0)');
-  ctx.fillStyle = glow;
-  ctx.fillRect(10, sunY - 150, 320, 300);
-  ctx.beginPath();
-  ctx.arc(170, sunY, 30, 0, Math.PI * 2);
-  ctx.fillStyle = '#ffd9a0';
-  ctx.fill();
+  if (pal.night > 0.15) {
+    const a = (pal.night - 0.15) / 0.85;
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 26; i++) {
+      const sx = (i * 173.3 + 40) % W;
+      const sy = (i * 97.7 + 16) % (WATER_Y - 60);
+      const tw = 0.5 + 0.5 * Math.sin(t * 2 + i * 1.3);
+      ctx.globalAlpha = a * (0.35 + 0.65 * tw);
+      ctx.fillRect(sx, sy, 1.6, 1.6);
+    }
+    ctx.globalAlpha = 1;
+  }
 
-  ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  if (sp.alpha > 0.01) {
+    const glow = ctx.createRadialGradient(sp.x, sp.y, 6, sp.x, sp.y, 150);
+    glow.addColorStop(0, rgbaStr(pal.sun, 0.55 * sp.alpha));
+    glow.addColorStop(1, rgbaStr(pal.sun, 0));
+    ctx.fillStyle = glow;
+    ctx.fillRect(sp.x - 150, sp.y - 150, 300, 300);
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y, 30, 0, Math.PI * 2);
+    ctx.fillStyle = rgbaStr(pal.sun, sp.alpha);
+    ctx.fill();
+  }
+
+  const moonA = clamp01((pal.night - 0.35) / 0.6);
+  if (moonA > 0.01) {
+    const mx = W * 0.74;
+    const my = 92;
+    const glow = ctx.createRadialGradient(mx, my, 4, mx, my, 90);
+    glow.addColorStop(0, `rgba(222,232,255,${(0.35 * moonA).toFixed(3)})`);
+    glow.addColorStop(1, 'rgba(222,232,255,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(mx - 90, my - 90, 180, 180);
+    ctx.beginPath();
+    ctx.arc(mx, my, 20, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(235,240,252,${(0.95 * moonA).toFixed(3)})`;
+    ctx.fill();
+  }
+
+  ctx.fillStyle = `rgba(255,255,255,${(0.12 * (1 - pal.night * 0.7)).toFixed(3)})`;
   for (let i = 0; i < 3; i++) {
     const cx = ((t * 6 + i * 380) % (W + 240)) - 120;
     const cy = 60 + i * 44;
@@ -148,7 +260,7 @@ function drawSky(ctx: CanvasRenderingContext2D, t: number): void {
     ctx.fill();
   }
 
-  ctx.fillStyle = '#0c2033';
+  ctx.fillStyle = rgbStr(pal.mountains);
   ctx.beginPath();
   ctx.moveTo(0, WATER_Y);
   ctx.lineTo(0, WATER_Y - 26);
@@ -160,30 +272,45 @@ function drawSky(ctx: CanvasRenderingContext2D, t: number): void {
   ctx.fill();
 }
 
-function drawWater(ctx: CanvasRenderingContext2D, t: number): void {
+function drawWater(
+  ctx: CanvasRenderingContext2D,
+  t: number,
+  pal: DayPalette,
+  sp: { x: number; y: number; alpha: number }
+): void {
   const water = ctx.createLinearGradient(0, WATER_Y, 0, H);
-  water.addColorStop(0, '#2f6f9f');
-  water.addColorStop(0.22, '#16507f');
-  water.addColorStop(1, '#071c38');
+  water.addColorStop(0, rgbStr(pal.waterTop));
+  water.addColorStop(0.22, rgbStr(lerpRgb(pal.waterTop, pal.waterBot, 0.5)));
+  water.addColorStop(1, rgbStr(pal.waterBot));
   ctx.fillStyle = water;
   ctx.fillRect(0, WATER_Y, W, H - WATER_Y);
 
-  const refl = ctx.createLinearGradient(0, WATER_Y, 0, H);
-  refl.addColorStop(0, 'rgba(255,190,110,0.22)');
-  refl.addColorStop(1, 'rgba(255,190,110,0)');
-  ctx.fillStyle = refl;
-  ctx.fillRect(130, WATER_Y, 90, H - WATER_Y);
+  if (sp.alpha > 0.01) {
+    const refl = ctx.createLinearGradient(0, WATER_Y, 0, H);
+    refl.addColorStop(0, rgbaStr(pal.sun, 0.3 * sp.alpha));
+    refl.addColorStop(1, rgbaStr(pal.sun, 0));
+    ctx.fillStyle = refl;
+    ctx.fillRect(sp.x - 45, WATER_Y, 90, H - WATER_Y);
+  }
 
+  const glow = 1 - pal.night * 0.5;
   ctx.fillStyle = '#cfeaff';
   for (let i = 0; i < 7; i++) {
     const y = WATER_Y + 16 + i * 27 + Math.sin(t * 0.6 + i * 1.7) * 2.5;
     const off = (t * 14 + i * 97) % 150;
-    ctx.globalAlpha = 0.045 + 0.03 * (0.5 + 0.5 * Math.sin(i * 2.3 + t * 0.8));
+    ctx.globalAlpha = (0.045 + 0.03 * (0.5 + 0.5 * Math.sin(i * 2.3 + t * 0.8))) * glow;
     for (let x = -150 + off; x < W; x += 150) {
       ctx.fillRect(x, y, 48, 2);
     }
   }
   ctx.globalAlpha = 1;
+}
+
+// Subtle darkening over the world (not the players, drawn later) as night falls.
+function drawAmbient(ctx: CanvasRenderingContext2D, night: number): void {
+  if (night <= 0.02) return;
+  ctx.fillStyle = `rgba(8,14,38,${(night * 0.22).toFixed(3)})`;
+  ctx.fillRect(0, 0, W, H);
 }
 
 function drawRipples(ctx: CanvasRenderingContext2D, ripples: Ripple[]): void {

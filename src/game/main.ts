@@ -131,7 +131,7 @@ interface ActiveFish {
 
 // Per-player game state. Only the shared clock is global.
 // ---- Day / round: 3-minute days, 3 days per game, then a final screen -------
-const DAY_LEN = 180; // seconds per day/round
+const DAY_LEN = 90; // seconds per day/round (1.5 minutes)
 const TOTAL_DAYS = 3; // days in a game before the final results screen
 const DAY_END_STEP = 0.6; // seconds between item reveals on the end screen
 const DAY_END_LINGER = 1.6; // pause after the last item before the continue button
@@ -814,6 +814,7 @@ function sceneView(): Scene {
   return {
     t: G.t,
     timeLeft: G.timeLeft,
+    dayProgress: 1 - G.timeLeft / DAY_LEN,
     players: players.map((p) => ({
       id: p.id,
       color: p.layout.color,
