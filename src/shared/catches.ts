@@ -38,8 +38,10 @@ export const CATCHES: CatchDef[] = [
   { id: 'salmon', name: 'King Salmon', img: salmonImg, kind: 'fish', strength: 0.85, sizeMin: 45, sizeMax: 110, sizeUnit: 'cm', price: 60, weight: 11 },
   { id: 'cd', name: 'Old CD', img: cdImg, kind: 'junk', strength: 0.42, sizeMin: 12, sizeMax: 12, sizeUnit: 'cm', price: 4, weight: 10 },
   { id: 'bag', name: 'Plastic Bag', img: bagImg, kind: 'junk', strength: 0.28, sizeMin: 15, sizeMax: 30, sizeUnit: 'cm', price: 3, weight: 10 },
-  { id: 'ipad', name: 'Lost iPad', img: ipadImg, kind: 'loot', strength: 0.3, sizeMin: 25, sizeMax: 25, sizeUnit: 'cm', price: 150, weight: 5 },
-  { id: 'smiski', name: 'Smiski', img: smiskiImg, kind: 'loot', strength: 0.35, sizeMin: 20, sizeMax: 35, sizeUnit: 'cm', price: 120, weight: 4 },
+  // Kaia's birthday presents: weight 0 so they never turn up at random — they only
+  // come from the guaranteed Day-2 (Smiski) / Day-3 (iPad) present in the game.
+  { id: 'ipad', name: 'Lost iPad', img: ipadImg, kind: 'loot', strength: 0.3, sizeMin: 25, sizeMax: 25, sizeUnit: 'cm', price: 150, weight: 0 },
+  { id: 'smiski', name: 'Smiski', img: smiskiImg, kind: 'loot', strength: 0.35, sizeMin: 20, sizeMax: 35, sizeUnit: 'cm', price: 120, weight: 0 },
 ];
 
 export function catchById(id: string): CatchDef {

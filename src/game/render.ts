@@ -75,6 +75,7 @@ export interface Scene {
   t: number;
   timeLeft: number; // seconds left in the current day
   dayProgress: number; // 0 (day start) .. 1 (day end) — drives the time-of-day sky
+  celebration: { elapsed: number } | null; // Kaia's birthday reveal (confetti burst)
   players: PlayerScene[];
 }
 
@@ -108,6 +109,7 @@ export function draw(ctx: CanvasRenderingContext2D, s: Scene): void {
   drawSky(ctx, s.t, pal, sp);
   drawWater(ctx, s.t, pal, sp);
   drawAmbient(ctx, pal.night);
+  if (s.celebration) drawCelebration(ctx, s.celebration.elapsed);
   for (const p of s.players) {
     if (!p.visible) continue;
     drawRipples(ctx, p.ripples);
@@ -567,4 +569,60 @@ function drawDayClock(ctx: CanvasRenderingContext2D, s: Scene): void {
   ctx.shadowBlur = 0;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
+}
+
+// One-shot confetti burst for Kaia's birthday reveal, driven purely by elapsed
+// time so it keeps animating while the game is paused in the 'present' phase.
+const CONFETTI_COLORS = ['#ff6ea0', '#ffd166', '#78c8ff', '#8ce696', '#be96ff', '#ff8b5c'];
+interface Confetto {
+  ang: number;
+  sp: number;
+  drift: number;
+  life: number;
+  size: number;
+  spin: number;
+  color: string;
+}
+const CONFETTI: Confetto[] = (() => {
+  const arr: Confetto[] = [];
+  for (let i = 0; i < 110; i++) {
+    const r = (n: number): number => {
+      const x = Math.sin((i + 1) * (n + 7) * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    arr.push({
+      ang: -Math.PI / 2 + (r(1) - 0.5) * 2.4,
+      sp: 150 + r(2) * 300,
+      drift: (r(3) - 0.5) * 120,
+      life: 1.1 + r(4) * 1.4,
+      size: 3 + r(5) * 5,
+      spin: 6 + r(6) * 10,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    });
+  }
+  return arr;
+})();
+
+function drawCelebration(ctx: CanvasRenderingContext2D, elapsed: number): void {
+  const LIFE = 2.6;
+  if (elapsed < 0 || elapsed > LIFE) return;
+  const cx = W / 2;
+  const cy = H * 0.4;
+  const g = 430;
+  ctx.save();
+  for (const c of CONFETTI) {
+    const e = Math.min(elapsed, c.life);
+    const vx = Math.cos(c.ang) * c.sp;
+    const vy = Math.sin(c.ang) * c.sp;
+    const x = cx + vx * e + c.drift * e;
+    const y = cy + vy * e + 0.5 * g * e * e;
+    if (y > H + 10) continue;
+    ctx.globalAlpha = Math.max(0, 1 - e / c.life);
+    ctx.fillStyle = c.color;
+    const w = c.size * (0.4 + 0.6 * Math.abs(Math.sin(e * c.spin)));
+    const h = c.size * (0.6 + 0.4 * Math.abs(Math.cos(e * c.spin)));
+    ctx.fillRect(x - w / 2, y - h / 2, w, h);
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
 }

@@ -4,7 +4,7 @@ import { createLink, sendMsg, fetchRtcConfig } from '../shared/link';
 import { postSignal, waitForSignal } from '../shared/signal';
 import type { Msg } from '../shared/protocol';
 import { MAX_CRANK_RAD_S, clamp } from '../shared/protocol';
-import { pickCatch, randomSize, type CatchDef } from '../shared/catches';
+import { pickCatch, randomSize, catchById, type CatchDef } from '../shared/catches';
 import {
   W,
   H,
@@ -136,7 +136,7 @@ const TOTAL_DAYS = 3; // days in a game before the final results screen
 const DAY_END_STEP = 0.6; // seconds between item reveals on the end screen
 const DAY_END_LINGER = 1.6; // pause after the last item before the continue button
 
-type Phase = 'playing' | 'dayEnd' | 'gameOver';
+type Phase = 'playing' | 'dayEnd' | 'present' | 'gameOver';
 
 // A single item landed in the current day (shown one-by-one on the end screen).
 interface DayItem {
@@ -184,6 +184,7 @@ interface Player {
   dayItems: DayItem[]; // items landed this day (feeds the end-of-day market)
   dayResults: DayResult[]; // completed days, one { money, count } per day
   lastName: string | null;
+  presentLanded: boolean; // Kaia (P2) has landed her birthday present this day
   bait: string | null;
 }
 
@@ -219,6 +220,7 @@ function makePlayer(id: PlayerId, layout: PlayerLayout): Player {
     dayItems: [],
     dayResults: [],
     lastName: null,
+    presentLanded: false,
     bait: null,
   };
 }
@@ -414,8 +416,68 @@ function introChoice(yes: boolean): void {
   setTimeout(endIntro, 3800);
 }
 
-// A click on the box advances the intro; the yes/no buttons handle their own clicks.
+// ---- Kaia's birthday present: guaranteed, and the day can't end until she lands it
+// Day 2 -> Smiski, Day 3 -> iPad. Only Player 2 (Kaia) receives them.
+const KAIA_PRESENT: Record<number, string> = { 2: 'smiski', 3: 'ipad' };
+const PRESENT_MSG: Record<number, string> = {
+  2: 'Psst, Kaia... this little Smiski was never for sale. It has been saved just for you. Happy birthday.',
+  3: 'And the big one, Kaia... an iPad, pulled from the deep and kept safe for you. Happy birthday.',
+};
+const PRESENT_HOLD = 7; // seconds to read the message before it auto-dismisses
+let presentStep = -1; // -1 = no present dialogue up; 0 = showing
+let presentHoldT = 0;
+let presentStartT = 0; // G.t when the reveal started (drives the confetti)
+
+function presentFor(p: Player): string | null {
+  return p.id === 2 ? KAIA_PRESENT[G.day] ?? null : null;
+}
+
+// The day is held open (overtime, clock frozen) until Kaia has landed her present.
+function presentOvertime(): boolean {
+  if (G.timeLeft > 0) return false;
+  return presentFor(players[1]) !== null && !players[1].presentLanded;
+}
+
+function startPresentReveal(day: number): void {
+  G.phase = 'present';
+  presentStep = 0;
+  presentHoldT = 0;
+  presentStartT = G.t;
+  say(CHAR_NAME, PRESENT_MSG[day] ?? 'Happy birthday, Kaia!', { portrait: true, autoHide: false });
+}
+
+// Advance (box tap, space, or a phone tap): skip the typing, or once the line is
+// done, close the reveal and resume — ending the day if the clock already ran out.
+function presentAdvance(): void {
+  if (presentStep < 0 || G.phase !== 'present') return;
+  if (!dialogueEl.classList.contains('done')) {
+    finishTyping();
+    return;
+  }
+  presentStep = -1;
+  presentHoldT = 0;
+  dlg.active = false;
+  dialogueEl.classList.add('hidden');
+  if (G.timeLeft <= 0) startDayEnd();
+  else G.phase = 'playing';
+}
+
+// Auto-dismiss the birthday message after the hold so it can never get stuck.
+function stepPresent(dt: number): void {
+  if (presentStep < 0) return;
+  if (dialogueEl.classList.contains('done')) {
+    presentHoldT += dt;
+    if (presentHoldT >= PRESENT_HOLD) presentAdvance();
+  }
+}
+
+// A click on the box advances the intro (or Kaia's birthday reveal); the yes/no
+// buttons handle their own clicks.
 dialogueEl.addEventListener('pointerdown', (e) => {
+  if (presentStep >= 0) {
+    presentAdvance();
+    return;
+  }
   if (introStep < 0) return;
   if (e.target instanceof Element && e.target.closest('.dlg-choice')) return;
   introAdvance();
@@ -431,7 +493,9 @@ dlgNoEl.addEventListener('click', (e) => {
 
 function scheduleBite(p: Player): void {
   p.biteT = 2.5 + Math.random() * 5;
-  const def = pickCatch();
+  // Kaia's birthday present: until she lands it, every bite is that present.
+  const presentId = presentFor(p);
+  const def = presentId && !p.presentLanded ? catchById(presentId) : pickCatch();
   p.fish = {
     def,
     size: randomSize(def),
@@ -483,7 +547,10 @@ window.addEventListener('keydown', (e) => {
   if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown', ' ', 't'].includes(k)) {
     p1KeyboardUsed = true;
   }
-  if (k === ' ' && !e.repeat) handleTap(players[0]);
+  if (k === ' ' && !e.repeat) {
+    if (presentStep >= 0) presentAdvance();
+    else handleTap(players[0]);
+  }
   if (k === 't' && !e.repeat) handleThrow(players[0]);
   if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown'].includes(k) || k === ' ') {
     keys.add(k);
@@ -546,12 +613,18 @@ function doCatch(p: Player): void {
   p.fish = null;
   p.state = 'caught';
   p.stateT = 0;
+  const isPresent = presentFor(p) === f.def.id;
   sendHaptic(p.id, [60, 90, 60]);
   const peer = links[p.id].peer;
-  if (peer) sendMsg(peer, { kind: 'catch', id: f.def.id, size: f.size });
+  if (peer) sendMsg(peer, { kind: 'catch', id: f.def.id, size: f.size, birthday: isPresent || undefined });
   sfx.catchFish();
   addSparkle(p, p.bobber.x, p.bobber.y, 26);
-  flash(p, `Player ${p.id} caught a ${f.def.name}!`);
+  if (isPresent) {
+    p.presentLanded = true;
+    startPresentReveal(G.day);
+  } else {
+    flash(p, `Player ${p.id} caught a ${f.def.name}!`);
+  }
 }
 
 function doLose(p: Player, text: string): void {
@@ -566,6 +639,7 @@ function doLose(p: Player, text: string): void {
 // The one big flick, two jobs per player: strike on a bite, otherwise cast.
 function handleThrow(p: Player): void {
   sfx.ensure();
+  if (G.phase !== 'playing') return;
   if (p.state === 'bite') {
     doStrike(p);
   } else if (p.state === 'idle' || p.state === 'waiting') {
@@ -576,6 +650,7 @@ function handleThrow(p: Player): void {
 // Tap is only "continue / proceed". Casting and striking are both the throw.
 function handleTap(p: Player): void {
   sfx.ensure();
+  if (G.phase !== 'playing') return;
   if (p.state === 'baiting') {
     p.bait = p.bait ?? 'worm';
     p.state = 'idle';
@@ -799,12 +874,14 @@ function update(dt: number): void {
     // The day clock only runs while someone is actually playing, so the pairing
     // / intro time doesn't eat into the 3 minutes.
     if (anyActive()) {
-      G.timeLeft -= dt;
-      if (G.timeLeft <= 0) startDayEnd();
+      if (!presentOvertime()) G.timeLeft -= dt;
+      if (G.timeLeft <= 0 && !presentOvertime()) startDayEnd();
     }
     for (const p of players) updatePlayer(p, dt);
   } else if (G.phase === 'dayEnd') {
     stepDayEnd(dt);
+  } else if (G.phase === 'present') {
+    stepPresent(dt);
   }
   stepDialogue(dt);
 }
@@ -815,6 +892,7 @@ function sceneView(): Scene {
     t: G.t,
     timeLeft: G.timeLeft,
     dayProgress: 1 - G.timeLeft / DAY_LEN,
+    celebration: G.phase === 'present' ? { elapsed: G.t - presentStartT } : null,
     players: players.map((p) => ({
       id: p.id,
       color: p.layout.color,
@@ -949,7 +1027,8 @@ function handleData(id: PlayerId, m: Msg): void {
     ph.v = m.v;
     ph.frames += 1;
   } else if (m.kind === 'tap') {
-    handleTap(players[id - 1]);
+    if (presentStep >= 0) presentAdvance();
+    else handleTap(players[id - 1]);
   } else if (m.kind === 'throw') {
     handleThrow(players[id - 1]);
   } else if (m.kind === 'bait') {
@@ -1143,7 +1222,10 @@ function startNextDay(): void {
   G.timeLeft = DAY_LEN;
   G.dayEndT = 0;
   G.phase = 'playing';
-  for (const p of players) p.dayItems = [];
+  for (const p of players) {
+    p.dayItems = [];
+    p.presentLanded = false;
+  }
   dayEnd.classList.add('hidden');
 }
 
@@ -1178,6 +1260,7 @@ function startNewGame(): void {
     p.dayItems = [];
     p.dayResults = [];
     p.lastName = null;
+    p.presentLanded = false;
   }
   gameOver.classList.add('hidden');
   dayEnd.classList.add('hidden');

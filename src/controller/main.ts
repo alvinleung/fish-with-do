@@ -270,13 +270,19 @@ for (const b of BAITS) {
   baitGrid.appendChild(btn);
 }
 
-function showCatch(id: string, size: number): void {
+function showCatch(id: string, size: number, birthday = false): void {
   const c = catchById(id);
   catchImg.src = c.img;
-  catchName.textContent =
-    c.kind === 'junk' ? `Junk: ${c.name}` : c.kind === 'loot' ? `Loot: ${c.name}` : c.name;
-  catchDetail.textContent =
-    c.kind === 'junk'
+  catchName.textContent = birthday
+    ? 'Happy Birthday, Kaia!'
+    : c.kind === 'junk'
+      ? `Junk: ${c.name}`
+      : c.kind === 'loot'
+        ? `Loot: ${c.name}`
+        : c.name;
+  catchDetail.textContent = birthday
+    ? `${c.name} — this one was saved just for you.`
+    : c.kind === 'junk'
       ? `${size} ${c.sizeUnit} · $${c.price} (scrap)`
       : c.kind === 'loot'
         ? `${size} ${c.sizeUnit} · $${c.price} — nice find!`
@@ -334,7 +340,7 @@ async function connect(): Promise<void> {
     },
     onData: (m: Msg) => {
       if (m.kind === 'haptic') buzz(m.ms);
-      else if (m.kind === 'catch') showCatch(m.id, m.size);
+      else if (m.kind === 'catch') showCatch(m.id, m.size, m.birthday === true);
     },
     onClose: () => {
       connected = false;

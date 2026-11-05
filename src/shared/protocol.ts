@@ -17,7 +17,7 @@ export type HelloMsg = { kind: 'hello' };
 export type BaitMsg = { kind: 'bait'; id: string };
 // Game -> phone: a catch landed; the phone shows it in the success state. Only
 // id + size cross the wire — the phone looks the rest up in the shared table.
-export type CatchMsg = { kind: 'catch'; id: string; size: number };
+export type CatchMsg = { kind: 'catch'; id: string; size: number; birthday?: boolean };
 // Phone -> game: the player tapped "Start game". The game dismisses its pairing
 // screen once any player starts.
 export type StartMsg = { kind: 'start' };
