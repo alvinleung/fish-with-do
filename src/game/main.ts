@@ -365,6 +365,8 @@ const INTRO = {
 // introStep: 0 = line 1, 1 = line 2, 2 = question (awaiting a pick), 3 = hint.
 let introStep = -1;
 let introWaitingChoice = false;
+// Play (and the day clock) stays frozen until the Hachiware greeting is over.
+let introDone = false;
 
 function sayIntro(text: string): void {
   say(CHAR_NAME, text, { portrait: true, autoHide: false });
@@ -373,15 +375,24 @@ function sayIntro(text: string): void {
 function startIntro(): void {
   introWaitingChoice = false;
   introStep = 0;
+  introDone = false;
   sayIntro(INTRO.lines[0]);
 }
 
 function endIntro(): void {
   introStep = -1;
   introWaitingChoice = false;
+  introDone = true;
   dlg.active = false;
   dlgChoicesEl.classList.add('hidden');
   dialogueEl.classList.add('hidden');
+}
+
+// Kick off the greeting exactly once — fired by a phone "start" or the first P1
+// key. The day clock only starts once this convo is over (see introDone).
+function beginIntro(): void {
+  if (introStep >= 0 || introDone) return;
+  startIntro();
 }
 
 function introAdvance(): void {
@@ -423,9 +434,7 @@ const PRESENT_MSG: Record<number, string> = {
   2: 'Psst, Kaia... this little Smiski was never for sale. It has been saved just for you. Happy birthday.',
   3: 'And the big one, Kaia... an iPad, pulled from the deep and kept safe for you. Happy birthday.',
 };
-const PRESENT_HOLD = 7; // seconds to read the message before it auto-dismisses
 let presentStep = -1; // -1 = no present dialogue up; 0 = showing
-let presentHoldT = 0;
 let presentStartT = 0; // G.t when the reveal started (drives the confetti)
 
 function presentFor(p: Player): string | null {
@@ -441,7 +450,6 @@ function presentOvertime(): boolean {
 function startPresentReveal(day: number): void {
   G.phase = 'present';
   presentStep = 0;
-  presentHoldT = 0;
   presentStartT = G.t;
   say(CHAR_NAME, PRESENT_MSG[day] ?? 'Happy birthday, Kaia!', { portrait: true, autoHide: false });
 }
@@ -455,20 +463,10 @@ function presentAdvance(): void {
     return;
   }
   presentStep = -1;
-  presentHoldT = 0;
   dlg.active = false;
   dialogueEl.classList.add('hidden');
   if (G.timeLeft <= 0) startDayEnd();
   else G.phase = 'playing';
-}
-
-// Auto-dismiss the birthday message after the hold so it can never get stuck.
-function stepPresent(dt: number): void {
-  if (presentStep < 0) return;
-  if (dialogueEl.classList.contains('done')) {
-    presentHoldT += dt;
-    if (presentHoldT >= PRESENT_HOLD) presentAdvance();
-  }
 }
 
 // A click on the box advances the intro (or Kaia's birthday reveal); the yes/no
@@ -545,10 +543,12 @@ window.addEventListener('keydown', (e) => {
   enableSound();
   const k = e.key.toLowerCase();
   if (KEY_X[k] !== undefined || ['w', 's', 'arrowup', 'arrowdown', ' ', 't'].includes(k)) {
+    if (!p1KeyboardUsed) beginIntro();
     p1KeyboardUsed = true;
   }
   if (k === ' ' && !e.repeat) {
     if (presentStep >= 0) presentAdvance();
+    else if (introStep >= 0) introAdvance();
     else handleTap(players[0]);
   }
   if (k === 't' && !e.repeat) handleThrow(players[0]);
@@ -879,9 +879,9 @@ function updatePlayer(p: Player, dt: number): void {
 
 function update(dt: number): void {
   G.t += dt;
-  if (G.phase === 'playing') {
-    // The day clock only runs while someone is actually playing, so the pairing
-    // / intro time doesn't eat into the 3 minutes.
+  // Nothing plays (clock, casts, reeling) until the Hachiware greeting is over.
+  if (G.phase === 'playing' && introDone) {
+    // The day clock only runs while someone is actually playing.
     if (anyActive()) {
       if (!presentOvertime()) G.timeLeft -= dt;
       if (G.timeLeft <= 0 && !presentOvertime()) startDayEnd();
@@ -889,8 +889,6 @@ function update(dt: number): void {
     for (const p of players) updatePlayer(p, dt);
   } else if (G.phase === 'dayEnd') {
     stepDayEnd(dt);
-  } else if (G.phase === 'present') {
-    stepPresent(dt);
   }
   stepDialogue(dt);
 }
@@ -1058,6 +1056,7 @@ function onPlayerStart(): void {
   gameStarted = true;
   pairWrap.classList.add('hidden');
   updateStatus();
+  beginIntro();
 }
 
 function updateStatus(): void {
@@ -1284,6 +1283,6 @@ dayEndBtn.addEventListener('click', () => {
 });
 playAgainBtn.addEventListener('click', startNewGame);
 
-// Generate the QR codes as soon as the page loads, then play the intro.
+// Generate the QR codes on load. The Hachiware greeting plays on game start (a
+// phone "start" or the first P1 key) — see beginIntro().
 startSession();
-startIntro();
