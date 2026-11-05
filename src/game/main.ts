@@ -613,6 +613,12 @@ function doCatch(p: Player): void {
   p.fish = null;
   p.state = 'caught';
   p.stateT = 0;
+  // Settle the fight feedback the instant the fish is in: without this the rod
+  // shake and reel read stay frozen mid-fight (noticeable during the paused
+  // present reveal, where updatePlayer no longer runs).
+  p.reelR = 0;
+  p.tension = 0;
+  p.rodShake = 0;
   const isPresent = presentFor(p) === f.def.id;
   sendHaptic(p.id, [60, 90, 60]);
   const peer = links[p.id].peer;
@@ -632,6 +638,9 @@ function doLose(p: Player, text: string): void {
   p.fish = null;
   p.state = 'lost';
   p.stateT = 0;
+  p.reelR = 0;
+  p.tension = 0;
+  p.rodShake = 0;
   sendHaptic(p.id, 300);
   sfx.lose();
 }
@@ -943,7 +952,10 @@ function loop(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   update(dt);
-  sfx.setReel(Math.max(players[0].reelR, players[1].reelR));
+  // The reel is a single shared loop: silence it whenever the game is paused
+  // (present reveal, day end, game over) so a frozen mid-fight reelR can't keep
+  // the cranking sound playing.
+  sfx.setReel(G.phase === 'playing' ? Math.max(players[0].reelR, players[1].reelR) : 0);
   draw(ctx, sceneView());
   debugInfo();
   requestAnimationFrame(loop);
